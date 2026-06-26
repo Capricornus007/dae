@@ -25,7 +25,7 @@ on:
       - ".github/workflows/build.yml"
       - ".github/workflows/seed-build.yml"
       - "Makefile"
-
+workflow_dispatch: # 👈 加入這一行，允許手動觸發工作流
 jobs:
   pre-actions:
     uses: daeuniverse/ci-seed-jobs/.github/workflows/pre-actions.yml@master
