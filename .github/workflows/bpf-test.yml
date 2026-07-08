@@ -18,7 +18,8 @@ on:
       - "go.mod"
       - "go.sum"
       - ".github/workflows/bpf-test.yml"
-workflow_dispatch: # 👈 加入這一行，允許手動觸發工作流
+workflow_dispatch:
+# 👈 加入這一行，允許手動觸發工作流
 permissions: read-all
 
 jobs:
