@@ -30,8 +30,8 @@ jobs:
         id: generate_token
         uses: tibdex/github-app-token@v2.1.0
         with:
-          app_id: ${{ secrets.GH_APP_ID }}
-          private_key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          app_id: ${{ secrets.APP_ID }}
+          private_key: ${{ secrets.APP_PRIVATE_KEY }}
 
       - name: Dispatch
         uses: convictional/trigger-workflow-and-wait@v1.6.5
