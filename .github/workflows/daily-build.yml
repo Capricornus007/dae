@@ -15,8 +15,8 @@ on:
   schedule:
     # At (UTC+8 0:00 | UTC+0 16:00) every day
     - cron: "0 16 * * *"
-workflow_dispatch: #
-👈 加入這一行，允許手動觸發工作流
+  workflow_dispatch: #
+#👈 加入這一行，允許手動觸發工作流
 jobs:
   pre-actions:
     uses: daeuniverse/ci-seed-jobs/.github/workflows/pre-actions.yml@master
