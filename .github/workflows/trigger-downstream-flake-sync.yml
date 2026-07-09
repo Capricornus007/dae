@@ -25,20 +25,12 @@ jobs:
   dispatch-downstream-workflow:
     runs-on: ubuntu-latest
     steps:
-      - name: Generate GitHub auth token
-        # https://github.com/tibdex/github-app-token
-        id: generate_token
-        uses: tibdex/github-app-token@v2.1.0
-        with:
-          app_id: ${{ secrets.APP_ID }}
-          private_key: ${{ secrets.APP_PRIVATE_KEY }}
-
       - name: Dispatch
-        uses: convictional/trigger-workflow-and-wait@v1.6.5
+        uses: convictional/trigger-workflow-and-wait@v1.6.1
         with:
           owner: ${{ github.repository_owner }}
           repo: ${{ env.DOWNSTREAM_REPO }}
-          github_token: ${{ steps.generate_token.outputs.token }}
+          github_token: ${{ secrets.MY_TOKEN }} # 👈 直接用你的 PAT 密鑰，省去 App 生成步驟
           workflow_file_name: ${{ env.WORKFLOW_FILE }}
           ref: main
           client_payload: '{"project":"dae"}'
