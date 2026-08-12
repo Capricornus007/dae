@@ -14,6 +14,7 @@ curl --silent "https://api.github.com/repos/daeuniverse/dae/releases" | jq -r '.
 
 <!-- BEGIN NEW TOC ENTRY -->
 
+- [v2.0.1 (Latest)](#v201-latest)
 - [v2.0.0rc1 (Pre-release)](#v200rc1-pre-release)
 - [v1.1.0 (Latest)](#v110-latest)
 - [v1.0.0](#v100)
@@ -81,6 +82,32 @@ changed. Review them before upgrading:
   on abnormal exits (`Restart=on-abnormal`) with a crash-loop limit. dae also
   no longer derives `GOMEMLIMIT` from `memory.high` — only `memory.max`
   participates, and an explicit `GOMEMLIMIT` environment variable always wins.
+
+### v2.0.1 (Latest)
+
+> Release date: 2026/08/13
+
+Personal fork release of [Capricornus007/dae](https://github.com/Capricornus007/dae).
+This build takes the kdae ([olicesx/dae](https://github.com/olicesx/dae))
+semantic-refactor datapath as its base, unions in the daeuniverse upstream
+changes it was missing, and keeps this fork's own CI and packaging.
+
+#### Notable
+
+- **Base**: built on olicesx/dae (kdae) — routing-epoch dual-slot eBPF
+  datapath, unified conn_state map, lock-free UDP dispatcher, staged/tiered
+  reload, and game-UDP / hy2 / QUIC tuning.
+- **Dependencies**: `github.com/cilium/ebpf` pinned to **v0.22.0** so dae
+  loads on Linux 7.1 kernels (v0.20.0 fails to load there). The bpf2go
+  bindings were regenerated and verified building and testing green against
+  0.22.
+- **Union backfill**: cherry-picked upstream changes kdae was missing — the
+  logger `ForceFormatting` timestamp format ([#1010](https://github.com/daeuniverse/dae/pull/1010))
+  and the tproxy.c CO-RE relocation comment fix ([#1056](https://github.com/daeuniverse/dae/pull/1056)).
+- **Housekeeping**: dropped the org-only `trigger-downstream-flake-sync`
+  workflow, which can only fail on a personal fork.
+
+**Full Changelog**: https://github.com/Capricornus007/dae/compare/v2.0.0rc1...v2.0.1
 
 ### v2.0.0rc1 (Pre-release)
 
