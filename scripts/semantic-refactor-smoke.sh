@@ -214,8 +214,10 @@ wait_for_reload_count() {
 	local expected=$2
 	local attempt finished retired
 	for attempt in {1..45}; do
-		finished=$(grep -F -c "[Reload] Finished" "$log_file" || true)
-		retired=$(grep -F -c "[Reload] Retired old control plane" "$log_file" || true)
+		# dae logs through logrus-prefixed-formatter, which renders the
+		# "[Reload]" prefix used in the source as "Reload:", so accept both.
+		finished=$(grep -E -c "(\[Reload\]|Reload:) Finished" "$log_file" || true)
+		retired=$(grep -E -c "(\[Reload\]|Reload:) Retired old control plane" "$log_file" || true)
 		if [ "$finished" -ge "$expected" ] && [ "$retired" -ge "$expected" ]; then
 			return 0
 		fi
