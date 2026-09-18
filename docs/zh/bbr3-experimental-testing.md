@@ -33,7 +33,7 @@ git checkout main
 make dae
 ```
 
-`go.mod` 的 `replace github.com/daeuniverse/outbound` 指向 fork 的 sticky-ip 线
+`go.mod` 的 `replace github.com/daeuniverse/outbound` 指向 fork 的 `sticky-ip` 线
 （当前为 `v0.0.0-sticky-ip.0.20260918090140-cc86ced2e683`）；该线内含
 `protocol/tuic/congestion/bbr3/` 与 `cc_override` 白名单。`feat/bbr3-experimental`
 分支只是这条线的早期快照，已被 `main` 的 pin 完全覆盖，仅用于对照，不要拿它出包。
