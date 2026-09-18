@@ -150,7 +150,7 @@ func ProcessNameParserFactory(callback func(f *config_parser.Function, procNames
 	return emptyKeyOnly(func(log *logrus.Logger, f *config_parser.Function, key string, paramValueGroup []string, overrideOutbound *Outbound) (err error) {
 		var procNames [][consts.TaskCommLen]byte
 		for _, v := range paramValueGroup {
-			if len([]byte(v)) > consts.TaskCommLen - 1 {
+			if len([]byte(v)) > consts.TaskCommLen-1 {
 				log.Infof(`pname routing: trim "%v" to "%v" because it is too long.`, v, string([]byte(v)[:consts.TaskCommLen-1]))
 			}
 			procNames = append(procNames, toProcessName(v))
