@@ -26,13 +26,18 @@
 
 ## 2. 构建
 
+bbr3 已经随 `main` 线的 outbound pin 交付，**不再需要切任何实验分支**：
+
 ```bash
-git checkout feat/bbr3-experimental
+git checkout main
 make dae
 ```
 
-该分支把 `go.mod` 的 outbound 钉到 fork 的 `feat/bbr3-experimental`
-（`v0.0.0-sticky-ip.0.20260909102757-319c8e694f48`；fork 在 2026-09 重写历史，旧 hash 已作废）。若你的环境走代理拉不到该提交：
+`go.mod` 的 `replace github.com/daeuniverse/outbound` 指向 fork 的 sticky-ip 线
+（当前为 `v0.0.0-sticky-ip.0.20260918090140-cc86ced2e683`）；该线内含
+`protocol/tuic/congestion/bbr3/` 与 `cc_override` 白名单。`feat/bbr3-experimental`
+分支只是这条线的早期快照，已被 `main` 的 pin 完全覆盖，仅用于对照，不要拿它出包。
+（fork 在 2026-09 重写历史，旧 hash 一律作废。）若你的环境走代理拉不到该提交：
 
 ```bash
 GOPROXY=direct GOPRIVATE='github.com/olicesx/*' go mod download github.com/olicesx/outbound

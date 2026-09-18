@@ -31,6 +31,11 @@
 - bbr3 经 outbound pin 成为「链路速率未知」的 QUIC 默认拥塞控制器（`ac33927`），
   `cc_override` 可按出站指定控制器（未知值直接报错）；测试与回退见
   `docs/zh/bbr3-experimental-testing.md`
+- bbr3 全链已收口：`cc_override` 由 outbound 的 dialer 直接读链接 query
+  （`dialer/{tuic,juicity,hysteria2}`），dae 侧整条 node 链接原样透传
+  （`outbound.NewDialerSetFromLinksContext`），**不需要也不应再加控制面暴露层**；
+  `kdae/feat/bbr3-experimental` 支线已被 `main` 的 pin 完全覆盖（ahead 0），
+  仅保留为早期快照，不要拿它出包
 - 两个 fork 在 2026-09 重写过历史（`ae7dee05`），此前的 commit hash 一律作废
 - fork 侧验证：`scripts/fork-cross-repo-test.sh`（解析 replace pin，跑 fork 自身测试）
 
