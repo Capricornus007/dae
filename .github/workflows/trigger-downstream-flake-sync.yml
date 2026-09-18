@@ -26,11 +26,10 @@ permissions:
 
 jobs:
   dispatch-downstream-workflow:
-    # fork without the GitHub App configured (and without a downstream flake.nix repo) skips cleanly
-    if: ${{ secrets.GH_APP_ID != '' && secrets.GH_APP_PRIVATE_KEY != '' }}
     runs-on: ubuntu-latest
     steps:
       - name: Generate GitHub auth token
+        if: ${{ secrets.GH_APP_ID != '' && secrets.GH_APP_PRIVATE_KEY != '' }}
         # https://github.com/tibdex/github-app-token
         id: generate_token
         uses: tibdex/github-app-token@3beb63f4bd073e61482598c45c71c1019b59b73a # v2.1.0
@@ -39,6 +38,7 @@ jobs:
           private_key: ${{ secrets.GH_APP_PRIVATE_KEY }}
 
       - name: Dispatch
+        if: ${{ steps.generate_token.outputs.token != '' }}
         uses: convictional/trigger-workflow-and-wait@f69fa9eedd3c62a599220f4d5745230e237904be # v1.6.5
         with:
           owner: ${{ github.repository_owner }}
