@@ -26,6 +26,8 @@ permissions:
 
 jobs:
   dispatch-downstream-workflow:
+    # fork without the GitHub App configured (and without a downstream flake.nix repo) skips cleanly
+    if: ${{ secrets.GH_APP_ID != '' && secrets.GH_APP_PRIVATE_KEY != '' }}
     runs-on: ubuntu-latest
     steps:
       - name: Generate GitHub auth token
