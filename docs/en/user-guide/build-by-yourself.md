@@ -7,7 +7,7 @@
 ```shell
 clang >= 10
 llvm >= 10 (optional)
-golang >= 1.24
+golang >= 1.26
 make
 ```
 
@@ -35,8 +35,8 @@ make GOFLAGS="-buildvcs=false" \
 
 `make` builds the optional `dae trace` eBPF program when the toolchain can
 generate it and records the result in `.build_tags` (`trace`, or empty when the
-build ran without it). **`mips`, `mips64`, `mips64le` and `mipsle` do not get
-`dae trace`** (`TRACE_UNSUPPORTED_GOARCH` in the Makefile): for those the build
+build ran without it). **`arm`, `mips`, `mips64`, `mips64le`, `mipsle` and `s390x` do not
+get `dae trace`** (`TRACE_UNSUPPORTED_GOARCH` in the Makefile): for those the build
 prints a `WARNING`, produces a binary without the `trace` build tag and
 continues. For every other `GOARCH` a failed trace generation is an error, so a
 binary cannot lose `dae trace` silently.
@@ -78,10 +78,10 @@ popd
 Download the example config file:
 
 ```shell
-curl -L -o example.dae https://github.com/daeuniverse/dae/raw/main/example.dae
+curl -L -o example.dae https://github.com/olicesx/dae/raw/main/example.dae
 ```
 
-See [example.dae](https://github.com/daeuniverse/dae/blob/main/example.dae).
+See [example.dae](https://github.com/olicesx/dae/blob/main/example.dae).
 
 After fine tuning, run dae:
 

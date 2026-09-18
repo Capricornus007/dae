@@ -139,10 +139,7 @@ func (c *failedQuicDcidCache) targetShardEntriesCap(liveEntries int) int {
 	if c == nil || liveEntries <= 0 {
 		return 0
 	}
-	target := max(liveEntries, c.initialEntriesPerShard())
-	if target > c.maxEntriesPerShard {
-		target = c.maxEntriesPerShard
-	}
+	target := min(max(liveEntries, c.initialEntriesPerShard()), c.maxEntriesPerShard)
 	return target
 }
 
@@ -281,10 +278,7 @@ func (c *failedQuicDcidCache) MarkFailed(key PacketSnifferKey, reason quicDcidFa
 		if entry.backoffShift < failedQuicDcidMaxBackoffShift {
 			entry.backoffShift++
 		}
-		newExpiry := now.Add(failedQuicDcidSuppressionTtl(reason, entry.backoffShift)).UnixNano()
-		if newExpiry < entry.expiresAtUnixNano {
-			newExpiry = entry.expiresAtUnixNano
-		}
+		newExpiry := max(now.Add(failedQuicDcidSuppressionTtl(reason, entry.backoffShift)).UnixNano(), entry.expiresAtUnixNano)
 		entry.expiresAtUnixNano = newExpiry
 		shard.entries[key] = entry
 		return
@@ -991,12 +985,6 @@ func (p *PacketSnifferPool) loadFlowFamily(key PacketSnifferKey) *packetSnifferF
 	return value.(*packetSnifferFlowFamilyRef)
 }
 
-func (p *PacketSnifferPool) deleteFlowFamilyMember(key PacketSnifferKey, sniffer *PacketSniffer) {
-	if family := p.loadFlowFamily(key); family != nil {
-		family.deleteMember(key, sniffer)
-	}
-}
-
 func (p *PacketSnifferPool) retainFlowFamilyRef(key PacketSnifferKey) *packetSnifferFlowFamilyRef {
 	if p == nil || !key.HasCacheableDcid() {
 		return nil
@@ -1036,10 +1024,6 @@ func (p *PacketSnifferPool) retainFlowFamilyRef(key PacketSnifferKey) *packetSni
 			}
 		}
 	}
-}
-
-func (p *PacketSnifferPool) releaseFlowFamily(key PacketSnifferKey) {
-	p.releaseFlowFamilyRef(key, p.loadFlowFamily(key))
 }
 
 func (p *PacketSnifferPool) releaseFlowFamilyRef(key PacketSnifferKey, ref *packetSnifferFlowFamilyRef) {

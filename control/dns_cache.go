@@ -189,35 +189,6 @@ func (c *DnsCache) MarkBpfUpdated(now time.Time) {
 	c.lastBpfDataHash.Store(c.ComputeBpfDataHash())
 }
 
-func (c *DnsCache) FillInto(req *dnsmessage.Msg) {
-	req.Answer = nil
-	if c.Answer != nil {
-		req.Answer = make([]dnsmessage.RR, len(c.Answer))
-		for i, rr := range c.Answer {
-			req.Answer[i] = dnsmessage.Copy(rr)
-		}
-	}
-	req.Ns = nil
-	if c.NS != nil {
-		req.Ns = make([]dnsmessage.RR, len(c.NS))
-		for i, rr := range c.NS {
-			req.Ns[i] = dnsmessage.Copy(rr)
-		}
-	}
-	req.Extra = nil
-	if c.Extra != nil {
-		req.Extra = make([]dnsmessage.RR, len(c.Extra))
-		for i, rr := range c.Extra {
-			req.Extra[i] = dnsmessage.Copy(rr)
-		}
-	}
-
-	req.Rcode = dnsmessage.RcodeSuccess
-	req.Response = true
-	req.RecursionAvailable = true
-	req.Truncated = false
-}
-
 // CloneForReload creates a new generation-local cache wrapper for reload.
 //
 // WARNING: Answer, NS, and Extra slices share memory with the original cache.
@@ -573,15 +544,6 @@ func (c *DnsCache) FillIntoWithTTL(req *dnsmessage.Msg, now time.Time) ([]byte, 
 		return nil, nil
 	}
 	return c.fillIntoWithTTLInPlace(resp, now)
-}
-
-func (c *DnsCache) IncludeIp(ip netip.Addr) bool {
-	for _, ans := range c.Answer {
-		if a, ok := dnsAnswerIP(ans); ok && a == ip {
-			return true
-		}
-	}
-	return false
 }
 
 func dnsAnswerIP(rr dnsmessage.RR) (netip.Addr, bool) {

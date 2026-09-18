@@ -1,5 +1,4 @@
 //go:build linux && dae_bpf_tests
-// +build linux,dae_bpf_tests
 
 /*
  * SPDX-License-Identifier: AGPL-3.0-only
@@ -154,6 +153,14 @@ func TestABRegression(t *testing.T) {
 		if status != 0 {
 			t.Fatalf("host-netns UDP listener was not passed through: status=%d", status)
 		}
+	})
+
+	t.Run("UDP refresh bypasses routing args scratch", func(t *testing.T) {
+		runAbCheckProgram(t, obj.TestAbUdpRefreshBypassesRoutingArgs, "UDP refresh scratch bypass")
+	})
+
+	t.Run("cookie PID timestamp refresh is lazy", func(t *testing.T) {
+		runAbCheckProgram(t, obj.TestAbCookiePidLazyRefresh, "cookie PID lazy refresh")
 	})
 }
 

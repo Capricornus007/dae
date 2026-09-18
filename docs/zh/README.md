@@ -27,7 +27,7 @@
 
 `使用 trace 命令`
 
-如果你想用 `dae trace` 命令来诊断网络连通性问题，所在的设备内核版本要求 >= 5.15。`mips`、`mips64`、`mips64le`、`mipsle` 四种架构不提供 `trace` 构建标签，这些架构的二进制没有 `dae trace` 命令。
+如果你想用 `dae trace` 命令来诊断网络连通性问题，所在的设备内核版本要求 >= 5.15。`arm`、`mips`、`mips64`、`mips64le`、`mipsle`、`s390x` 六种架构不提供 `trace` 构建标签，这些架构的二进制没有 `dae trace` 命令。
 
 ## 内核配置选项
 
@@ -266,11 +266,12 @@ dns {
 }
 ```
 
-完整样例：[example.dae](https://github.com/daeuniverse/dae/blob/main/example.dae)。
+完整样例：[example.dae](https://github.com/olicesx/dae/blob/main/example.dae)。
 
 如果你使用 PVE，可以参考 [#37](https://github.com/daeuniverse/dae/discussions/37)。
 
 ## PPPoE
+
 如果希望代理 pppoe 接口，请将 wan/lan_interface 设置为 pppd 生成的接口 (即 ppp0 / pppoe-wan) 而不是物理接口，对于 wan 接口是 pppoe 的情况，使用 auto 即可。
 
 ## 热重载和暂停

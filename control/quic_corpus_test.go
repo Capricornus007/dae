@@ -56,7 +56,6 @@ func phase0QuicSniffingCorpusFixtures() []quicSniffingCorpusFixture {
 // dial target, and reuse that bound flow for later packets.
 func TestPhase0QuicSniffingCorpus_LegacyBaseline(t *testing.T) {
 	for _, fixture := range phase0QuicSniffingCorpusFixtures() {
-		fixture := fixture
 		t.Run(fixture.name, func(t *testing.T) {
 			replayQuicSniffingCorpusFixture(t, fixture)
 		})
@@ -87,7 +86,7 @@ func replayQuicSniffingCorpusFixture(t *testing.T, fixture quicSniffingCorpusFix
 	primeQuicRegressionAnyfrom(src, dst)
 	routingResult := &bpfRoutingResult{Outbound: uint8(consts.OutboundControlPlaneRouting)}
 
-	if err := cp.handlePktWithPrefetch(nil, first, src, dst, routingResult, firstDecision, false, nil, UdpEndpointKey{}, false); err != nil {
+	if err := cp.handlePktWithPrefetch(first, src, dst, routingResult, firstDecision, nil, UdpEndpointKey{}, false); err != nil {
 		t.Fatalf("handlePkt(first): %v", err)
 	}
 	if got := fallbackUnderlay.calls.Load(); got != 0 {
@@ -98,7 +97,7 @@ func replayQuicSniffingCorpusFixture(t *testing.T, fixture quicSniffingCorpusFix
 	}
 
 	secondDecision := ClassifyUdpFlow(src, dst, second).EnsureSnifferSession()
-	if err := cp.handlePktWithPrefetch(nil, second, src, dst, routingResult, secondDecision, false, nil, UdpEndpointKey{}, false); err != nil {
+	if err := cp.handlePktWithPrefetch(second, src, dst, routingResult, secondDecision, nil, UdpEndpointKey{}, false); err != nil {
 		t.Fatalf("handlePkt(second): %v", err)
 	}
 
@@ -150,7 +149,7 @@ func replayQuicSniffingCorpusFixture(t *testing.T, fixture quicSniffingCorpusFix
 	}
 
 	thirdDecision := ClassifyUdpFlow(src, dst, second)
-	if err := cp.handlePktWithPrefetch(nil, second, src, dst, routingResult, thirdDecision, false, nil, UdpEndpointKey{}, false); err != nil {
+	if err := cp.handlePktWithPrefetch(second, src, dst, routingResult, thirdDecision, nil, UdpEndpointKey{}, false); err != nil {
 		t.Fatalf("handlePkt(third): %v", err)
 	}
 	if got := sniffedUnderlay.calls.Load(); got != 1 {

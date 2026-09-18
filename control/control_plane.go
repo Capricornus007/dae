@@ -38,6 +38,7 @@ import (
 	internal "github.com/daeuniverse/dae/pkg/ebpf_internal"
 	"github.com/daeuniverse/outbound/netproxy"
 	"github.com/daeuniverse/outbound/pool"
+	"github.com/daeuniverse/outbound/protocol"
 	"github.com/daeuniverse/outbound/protocol/direct"
 	dnsmessage "github.com/miekg/dns"
 	"github.com/sirupsen/logrus"
@@ -68,7 +69,6 @@ type ControlPlane struct {
 	controlPlaneDNSRuntime
 	dnsHandoffMu         sync.Mutex
 	dnsHandoffController atomic.Pointer[DnsController]
-	dnsHandoffOwned      bool
 	onceNetworkReady     sync.Once
 
 	ctx       context.Context
@@ -220,6 +220,64 @@ var (
 	resolveIp46ForBootstrap       = netutils.ResolveIp46
 	resolveIp46ForRealDomainProbe = netutils.ResolveIp46
 )
+
+// containerMountHint explains the container case without making it the only
+// hypothesis: an LXC container whose host does not expose bpffs cannot fix this
+// from inside.
+const containerMountHint = " (inside a container the host must expose a bpffs mount; if it cannot, use higher virtualization such as kvm/qemu)"
+
+// ensureBpfPinDir creates the BPF pin directory and, when that fails, reports
+// the actual state of the pin root instead of a fixed hypothesis. The previous
+// message blamed containers for every mkdir failure, which sent users after the
+// wrong cause: dae has already created its datapath devices by this point, a
+// container with a proper bpffs mount works fine, and the raw mkdir text never
+// told anyone what to do.
+func ensureBpfPinDir(pinPath string, log *logrus.Logger) error {
+	err := os.MkdirAll(pinPath, 0o755)
+	if err == nil || os.IsExist(err) {
+		return nil
+	}
+	wrapped := bpfPinDirError(pinPath, err, isBpfPinRootMounted())
+	if log != nil {
+		log.Warnln(wrapped)
+	}
+	return wrapped
+}
+
+// bpfPinDirError builds the message from the observed state of the pin root.
+// Only a missing mount makes the mount advice actionable; a permission or
+// not-a-directory failure keeps its raw cause and gains no container hint, so
+// the message never points at the wrong problem.
+func bpfPinDirError(pinPath string, mkdirErr error, pinRootMounted bool) error {
+	if !pinRootMounted {
+		return fmt.Errorf("bpf pin root %s is not a bpffs mount, so %s cannot be created: %w; mount it with \"mount -t bpf bpffs %s\"%s",
+			consts.BpfPinRoot, pinPath, mkdirErr, consts.BpfPinRoot, containerMountHint)
+	}
+	return fmt.Errorf("cannot create bpf pin directory %s: %w", pinPath, mkdirErr)
+}
+
+// bpfPinRootMountedFrom reports whether /proc/mounts content contains a bpffs
+// mount at root. It is split out so the parser can be tested against fixtures
+// instead of trusting the host's own mount table.
+func bpfPinRootMountedFrom(mounts string) bool {
+	for line := range strings.Lines(mounts) {
+		fields := strings.Fields(line)
+		if len(fields) >= 3 && fields[1] == consts.BpfPinRoot && fields[2] == "bpf" {
+			return true
+		}
+	}
+	return false
+}
+
+// isBpfPinRootMounted reports whether bpffs is mounted at the pin root, read
+// from /proc/mounts so the diagnosis matches the running kernel.
+func isBpfPinRootMounted() bool {
+	data, err := os.ReadFile("/proc/mounts")
+	if err != nil {
+		return false
+	}
+	return bpfPinRootMountedFrom(string(data))
+}
 
 func isIPLikeDomain(domain string) bool {
 	if domain == "" {
@@ -374,10 +432,7 @@ func NewControlPlaneWithContextOptions(
 		pinPath = filepath.Join(pinPath, fmt.Sprintf("reload-%d-%d", os.Getpid(), time.Now().UnixNano()))
 		ephemeralPinPath = true
 	}
-	if err = os.MkdirAll(pinPath, 0755); err != nil && !os.IsExist(err) {
-		if os.IsNotExist(err) {
-			log.Warnln("Perhaps you are in a container environment (such as lxc). If so, please use higher virtualization (kvm/qemu).")
-		}
+	if err = ensureBpfPinDir(pinPath, log); err != nil {
 		return nil, err
 	}
 	if ephemeralPinPath {
@@ -522,6 +577,35 @@ func NewControlPlaneWithContextOptions(
 	locationFinder := assets.NewLocationFinder(externGeoDataDirs)
 	option := dialer.NewGlobalOption(global, log)
 	option.SetRuntimeDependencies(directDialer, fullconeDirectDialer, systemDNSResolver)
+
+	// A proxy transport may have to resolve a peer-supplied domain-typed address
+	// on its datagram read path. Point that lookup at this generation's DNS view
+	// -- the system resolver with its configured fallback -- instead of the bare
+	// process resolver: inside a netns, or on a host whose /etc/resolv.conf is
+	// empty or points back at dae itself, the process resolver hangs or fails.
+	// The answer becomes the source address of a datagram sent to a client, so
+	// it must be a real record: no routing rewrite, no synthetic address.
+	protocol.SetDatapathResolver(func(ctx context.Context, host string) (netip.Addr, error) {
+		dns, err := systemDNSResolver.SystemDNS()
+		if err != nil {
+			return netip.Addr{}, err
+		}
+		ips, err4, err6 := netutils.ResolveIp46(ctx, directDialer, dns, host, "udp", true)
+		if ips.Ip4.IsValid() {
+			return ips.Ip4, nil
+		}
+		if ips.Ip6.IsValid() {
+			return ips.Ip6, nil
+		}
+		if err4 != nil {
+			return netip.Addr{}, err4
+		}
+		if err6 != nil {
+			return netip.Addr{}, err6
+		}
+		return netip.Addr{}, fmt.Errorf("no address for %q", host)
+	})
+
 	option.DaeDNS, err = daedns.NewWithOption(log, global, dnsConfig, &daedns.NewOption{
 		LocationFinder: locationFinder,
 		DirectDialer:   directDialer,
@@ -694,7 +778,7 @@ func NewControlPlaneWithContextOptions(
 	kernspaceSnapshot := builder.KernspaceSnapshot()
 	if !buildOpts.DelayDatapathCommit {
 		log.Infoln("Loading routing rules into kernel space (BPF)...")
-		if _, err = core.buildRoutingKernspaceForSlot(log, kernspaceSnapshot); err != nil {
+		if err = core.buildRoutingKernspaceForSlot(log, kernspaceSnapshot); err != nil {
 			return nil, fmt.Errorf("routing kernspace snapshot: %w", err)
 		}
 		if err = core.StageRoutingEpoch(); err != nil {
@@ -947,7 +1031,6 @@ func validateRequiredBpfMapsLoaded(bpf *bpfObjects) error {
 		{name: "routing_map", m: bpf.RoutingMap},
 		{name: "routing_meta_map", m: bpf.RoutingMetaMap},
 		{name: "active_routing_epoch_map", m: bpf.ActiveRoutingEpochMap},
-		{name: "routing_epoch_map", m: bpf.RoutingEpochMap},
 	}
 	for _, r := range required {
 		if r.m == nil {
@@ -1011,15 +1094,12 @@ func (c *ControlPlane) acquireDrainTicket() func() {
 }
 
 // InheritDialerHealthFrom copies health snapshots from a previous control plane
-// generation into the current one. It returns true when at least one dialer
-// matched by group+name between the old and new generation, indicating that
-// active connections on those dialers may survive the reload.
-func (c *ControlPlane) InheritDialerHealthFrom(previous *ControlPlane) bool {
+// generation into the current one, so a reload does not reset health for
+// dialers that both generations share.
+func (c *ControlPlane) InheritDialerHealthFrom(previous *ControlPlane) {
 	if c == nil || previous == nil {
-		return false
+		return
 	}
-
-	var hasOverlap bool
 
 	previousGroups := make(map[string]*outbound.DialerGroup, len(previous.outbounds))
 	for _, group := range previous.outbounds {
@@ -1050,7 +1130,6 @@ func (c *ControlPlane) InheritDialerHealthFrom(previous *ControlPlane) bool {
 				continue
 			}
 			if oldDialer := oldDialers[d.Property().Name]; oldDialer != nil {
-				hasOverlap = true
 				if dialerHealthCheckConfigEqual(d, oldDialer) {
 					d.RestoreHealthSnapshot(oldDialer.ReloadHealthSnapshot())
 				}
@@ -1058,7 +1137,6 @@ func (c *ControlPlane) InheritDialerHealthFrom(previous *ControlPlane) bool {
 		}
 		group.EnsureReloadSelectionFloor(fallback)
 	}
-	return hasOverlap
 }
 
 func dialerHealthCheckConfigEqual(current, previous *dialer.Dialer) bool {
@@ -2352,6 +2430,17 @@ func ingressResourceExhausted(err error) bool {
 		stderrors.Is(err, syscall.ENOBUFS)
 }
 
+// ingressWakeTimeout reports whether err is the read-deadline expiry that
+// Listener.Close installs through wakePacketConn to unblock a parked UDP
+// ingress read. A timeout therefore means the listener is being closed, which
+// is a clean stop; treating it as fatal let a reload's listener handoff abort
+// the retiring generation with "ingress loop terminated". The TCP accept loop
+// below already returns cleanly on the same signal.
+func ingressWakeTimeout(err error) bool {
+	netErr, ok := stderrors.AsType[net.Error](err)
+	return ok && netErr.Timeout()
+}
+
 // retryIngressAfterBackoff logs (rate-limited) and sleeps briefly so the
 // caller can retry a transient ingress error. It reports whether the caller
 // should keep looping; false means the plane is shutting down.
@@ -2449,8 +2538,7 @@ func (c *ControlPlane) Serve(readyChan chan<- bool, listener *Listener) (err err
 			}
 			lconn, err := tcpListener.Accept()
 			if err != nil {
-				var netErr net.Error
-				if stderrors.As(err, &netErr) && netErr.Timeout() {
+				if netErr, ok := stderrors.AsType[net.Error](err); ok && netErr.Timeout() {
 					return
 				}
 				if commonerrors.IsClosedConnection(err) || stderrors.Is(err, context.Canceled) {
@@ -2602,7 +2690,7 @@ func (c *ControlPlane) Serve(readyChan chan<- bool, listener *Listener) (err err
 				// preserving one exclusive ingress buffer per packet.
 				n, err := batchReader.ReadBatch()
 				if err != nil {
-					if !commonerrors.IsClosedConnection(err) {
+					if !commonerrors.IsClosedConnection(err) && !ingressWakeTimeout(err) {
 						if ingressResourceExhausted(err) && c.retryIngressAfterBackoff("ReadBatchUDP", err) {
 							continue
 						}
@@ -2634,7 +2722,7 @@ func (c *ControlPlane) Serve(readyChan chan<- bool, listener *Listener) (err err
 
 			pktBuf, src, oobn, err := singleReader.Read(oob[:])
 			if err != nil {
-				if !commonerrors.IsClosedConnection(err) {
+				if !commonerrors.IsClosedConnection(err) && !ingressWakeTimeout(err) {
 					if ingressResourceExhausted(err) && c.retryIngressAfterBackoff("ReadMsgUDPAddrPort", err) {
 						continue
 					}
@@ -3017,9 +3105,9 @@ func (c *ControlPlane) releaseRetainedState() {
 		return
 	}
 
-	if handoff, owned := c.takeDNSHandoffController(); owned && handoff != nil {
-		_ = handoff.Close()
-	}
+	// Detach the handoff slot so the retired plane no longer references the
+	// controller. It is not owned here, so it is deliberately left open.
+	c.takeDNSHandoffController()
 	c.bpfMaintenance = nil
 	c.ClearReloadDnsCacheSource()
 }
@@ -3160,5 +3248,5 @@ func (c *ControlPlane) StartPreparedDNSListener() error {
 	if c == nil {
 		return nil
 	}
-	return c.startPreparedDNSListener(c.ctx, c.log, &c.deferFuncs, c.stopOwnedDNSListener)
+	return c.startPreparedDNSListener(c.ctx, &c.deferFuncs, c.stopOwnedDNSListener)
 }

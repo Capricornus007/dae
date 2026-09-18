@@ -8,6 +8,7 @@ package outbound
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sort"
 	"strings"
 	"sync"
@@ -20,10 +21,29 @@ import (
 
 var regexpCache sync.Map
 
+// ResetRegexpCacheForReload drops the compiled-filter cache.
+//
+// The keys are the regex literals of the configured group filters, so entries
+// can only accumulate across in-process reloads: without this, the map's
+// membership is the union of every config the process has ever loaded rather
+// than the live config, and the process never gives that memory back. dae keeps
+// the rest of its process-global proxy state on the same footing (see
+// dialer.ResetGlobalProxyStateForReload, called from the reload worker
+// alongside this).
+//
+// Rebuilding costs one regexp2 compile per distinct pattern still in use, which
+// is the work the first evaluation of that pattern would have done anyway, so
+// no result changes.
+func ResetRegexpCacheForReload() {
+	regexpCache.Range(func(key, _ any) bool {
+		regexpCache.Delete(key)
+		return true
+	})
+}
+
 const (
 	FilterInput_Name            = "name"
 	FilterInput_SubscriptionTag = "subtag"
-	FilterInput_Link            = "link"
 )
 
 const (
@@ -57,18 +77,6 @@ func (s *DialerSet) AllDialers() []*dialer.Dialer {
 		return nil
 	}
 	return append([]*dialer.Dialer(nil), s.dialers...)
-}
-
-// ParseFailureCount reports how many nodes were skipped because their link
-// could not be parsed. An unparsed node never becomes a dialer, so it cannot
-// be selected by any routing rule built from this set.
-func (s *DialerSet) ParseFailureCount() uint64 {
-	if s == nil {
-		return 0
-	}
-	s.parseFailuresMu.Lock()
-	defer s.parseFailuresMu.Unlock()
-	return s.parseFailures
 }
 
 // noteParseFailure records one dropped node. The first dropped node of the
@@ -110,8 +118,7 @@ func (s *DialerSet) noteParseFailure(subscriptionTag string, err error) {
 
 // logParseFailureSummary emits the one line that closes a batch of dropped
 // nodes. It reports the number of nodes dropped since the last summary, so a
-// later refresh reports its own total, and the running count stays available
-// through ParseFailureCount.
+// later refresh reports its own total.
 func (s *DialerSet) logParseFailureSummary() {
 	if s == nil || s.log == nil {
 		return
@@ -121,9 +128,7 @@ func (s *DialerSet) logParseFailureSummary() {
 	batch := total - s.parseFailuresReported
 	s.parseFailuresReported = total
 	byTag := make(map[string]uint64, len(s.parseFailuresBy))
-	for tag, count := range s.parseFailuresBy {
-		byTag[tag] = count
-	}
+	maps.Copy(byTag, s.parseFailuresBy)
 	s.parseFailuresBy = nil
 	s.parseFailuresMu.Unlock()
 	if batch == 0 {

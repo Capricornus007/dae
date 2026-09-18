@@ -141,7 +141,7 @@ func initBatchDeleteFeatureFlags() {
 	})
 }
 
-func BpfMapBatchUpdate(m *ebpf.Map, keys interface{}, values interface{}, opts *ebpf.BatchOptions) (n int, err error) {
+func BpfMapBatchUpdate(m *ebpf.Map, keys any, values any, opts *ebpf.BatchOptions) (n int, err error) {
 	CheckBatchUpdateFeatureOnce.Do(func() {
 		version, e := internal.KernelVersion()
 		if e != nil {
@@ -195,7 +195,7 @@ func BpfMapBatchUpdate(m *ebpf.Map, keys interface{}, values interface{}, opts *
 // number of entries actually deleted. The kernel stops a batch at the first
 // missing key, so ENOENT must resume at the following key instead of being
 // treated as success for the unprocessed suffix.
-func BpfMapBatchDelete(m *ebpf.Map, keys interface{}) (n int, err error) {
+func BpfMapBatchDelete(m *ebpf.Map, keys any) (n int, err error) {
 	initBatchDeleteFeatureFlags()
 
 	vKeys := reflect.ValueOf(keys)
@@ -204,7 +204,7 @@ func BpfMapBatchDelete(m *ebpf.Map, keys interface{}) (n int, err error) {
 	}
 
 	if !SimulateBatchDelete {
-		n, err = batchDeleteIgnoringMissing(vKeys, func(suffix interface{}) (int, error) {
+		n, err = batchDeleteIgnoringMissing(vKeys, func(suffix any) (int, error) {
 			return m.BatchDelete(suffix, &ebpf.BatchOptions{})
 		})
 		if err != nil {
@@ -229,7 +229,7 @@ func BpfMapBatchDelete(m *ebpf.Map, keys interface{}) (n int, err error) {
 	return deleted, nil
 }
 
-func batchDeleteIgnoringMissing(vKeys reflect.Value, deleteBatch func(keys interface{}) (int, error)) (deleted int, err error) {
+func batchDeleteIgnoringMissing(vKeys reflect.Value, deleteBatch func(keys any) (int, error)) (deleted int, err error) {
 	length := vKeys.Len()
 	for cursor := 0; cursor < length; {
 		remaining := length - cursor
@@ -258,10 +258,16 @@ func batchDeleteIgnoringMissing(vKeys reflect.Value, deleteBatch func(keys inter
 	return deleted, nil
 }
 
-// detectCgroupPath returns the first-found mount point of type cgroup2
-// and stores it in the cgroupPath global variable.
-// Copied from https://github.com/cilium/ebpf/blob/v0.10.0/examples/cgroup_skb/main.go
+var detectCgroupPathCached = sync.OnceValues(scanCgroupPath)
+
+// detectCgroupPath returns the first-found mount point of type cgroup2,
+// caching the result for the lifetime of the process to avoid repeatedly
+// scanning /proc/mounts on reloads or multiple setups.
 func detectCgroupPath() (string, error) {
+	return detectCgroupPathCached()
+}
+
+func scanCgroupPath() (string, error) {
 	f, err := os.Open("/proc/mounts")
 	if err != nil {
 		return "", err
@@ -378,7 +384,6 @@ type bpfDataplaneMaps struct {
 	PktScratchMap            *ebpf.Map `ebpf:"pkt_scratch_map"`
 	RedirectTrack            *ebpf.Map `ebpf:"redirect_track"`
 	RouteCtxScratchMap       *ebpf.Map `ebpf:"route_ctx_scratch_map"`
-	RoutingEpochMap          *ebpf.Map `ebpf:"routing_epoch_map"`
 	RoutingHandoffMap        *ebpf.Map `ebpf:"routing_handoff_map"`
 	RoutingMap               *ebpf.Map `ebpf:"routing_map"`
 	RoutingMetaMap           *ebpf.Map `ebpf:"routing_meta_map"`
@@ -396,9 +401,9 @@ type bpfDataplane struct {
 }
 
 func loadBpfObjectsWithConstantsAndCustomizer(
-	obj interface{},
+	obj any,
 	opts *ebpf.CollectionOptions,
-	constants map[string]interface{},
+	constants map[string]any,
 	customize func(spec *ebpf.CollectionSpec) error,
 ) error {
 	spec, err := loadBpf()
@@ -649,7 +654,7 @@ retryLoadBpf:
 		log.Warnf("Kernel does not support bpf_get_current_task helper: %v; process names may be truncated or less accurate (degraded to bpf_get_current_comm)", err)
 	}
 
-	constants := map[string]interface{}{
+	constants := map[string]any{
 		"PARAM": struct {
 			tproxyPort           uint32
 			controlPlanePid      uint32
@@ -798,7 +803,6 @@ func assignDataplaneToBpf(bpf *bpfObjects, dp *bpfDataplane) {
 	bpf.PktScratchMap = dp.PktScratchMap
 	bpf.RedirectTrack = dp.RedirectTrack
 	bpf.RouteCtxScratchMap = dp.RouteCtxScratchMap
-	bpf.RoutingEpochMap = dp.RoutingEpochMap
 	bpf.RoutingHandoffMap = dp.RoutingHandoffMap
 	bpf.RoutingMap = dp.RoutingMap
 	bpf.RoutingMetaMap = dp.RoutingMetaMap

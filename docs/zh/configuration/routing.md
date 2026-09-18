@@ -97,6 +97,8 @@ dip(ext:"yourdatfile.dat:yourtag")->direct
 # >> ip route add default dev wg0 scope global table 1145
 # >> ip -6 route add default dev wg0 scope global table 1145
 # 注意：接口 wg0，标记 0x800，表 1145 可以通过首选项设置，但不能冲突。
+# 另请注意：dae 自身的外发流量带有内部标记（未设置 so_mark_from_dae 时为 0x100），
+# 因此针对「无标记」流量的规则不会匹配 dae 自身的外发流量，而匹配 0x100 的规则会同时作用于 dae 自身的流量。
 # 3. 在 dae 配置文件中设置路由规则。
 domain(geosite:disney) -> direct(mark: 0x800)
 
@@ -108,3 +110,18 @@ ip(geoip:cn) -> direct
 domain(geosite:cn) -> direct
 fallback: my_group
 ```
+
+## 设备级域名白名单（自动 sniff-punt）
+
+```shell
+mac('aa:bb:cc:dd:ee:ff') && domain(geosite:docker, suffix:quay.io, geosite:github) -> my_group
+mac('aa:bb:cc:dd:ee:ff') -> direct
+```
+
+域名条件依赖「该设备的 DNS 经过 dae」才存在的信息。如果该设备使用加密 DNS
+（DoH/DoT），白名单会静默失效，它的全部流量都会落到 fallback。dae 能识别这种形态
+（单主机 `mac`/`sip` 选择器 + 正向 `domain` 条件 + 之后仅选择器的 `direct`/`block`
+fallback），并自动在 fallback 之前插入一条仅在内核态生效的 sniff-punt 规则：缺少域名
+信息的连接被送往用户态嗅探（TLS SNI / HTTP host / QUIC），再用嗅探到的域名在同一条
+规则集上重新匹配。该设备未被白名单命中的流量仍落到 fallback，经用户态转发。使用前提是
+嗅探已启用（`sniffing_timeout > 0`、`dial_mode != ip`）；用 `auto_sniff_punt: false` 关闭。

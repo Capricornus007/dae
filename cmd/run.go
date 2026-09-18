@@ -26,6 +26,7 @@ import (
 
 	"github.com/daeuniverse/dae/cmd/internal"
 	"github.com/daeuniverse/dae/common/consts"
+	"github.com/daeuniverse/dae/component/outbound"
 	outbounddialer "github.com/daeuniverse/dae/component/outbound/dialer"
 	"github.com/daeuniverse/dae/config"
 	"github.com/daeuniverse/dae/control"
@@ -58,6 +59,7 @@ var (
 	beginReloadProxyFailureSuppression = outbounddialer.BeginReloadProxyFailureSuppression
 	endReloadProxyFailureSuppression   = outbounddialer.EndReloadProxyFailureSuppression
 	resetReloadProxyRuntimeState       = outbounddialer.ResetGlobalProxyStateForReload
+	resetReloadFilterRegexpCache       = outbound.ResetRegexpCacheForReload
 	listenControlPlaneFunc             = func(c *control.ControlPlane, port uint16) (*control.Listener, error) {
 		listener, err := c.Listen(port)
 		if err != nil {
@@ -160,7 +162,6 @@ type stagedReloadHandoff struct {
 	newCancel             context.CancelFunc
 	newListener           *control.Listener
 	abortConnections      bool
-	hasOverlap            bool
 	freshDatapath         bool
 	preparedDNSHandoff    bool
 	bpfTransferred        bool
@@ -181,7 +182,7 @@ type stagedReloadHandoff struct {
 // newStagedReloadHandoff builds the base handoff from the two supervisor
 // generations; path-specific flags (freshDatapath, preparedDNSHandoff,
 // bpfTransferred, ...) are set by the caller.
-func newStagedReloadHandoff(active, candidate *runtimeGeneration, abortConnections, hasOverlap bool) *stagedReloadHandoff {
+func newStagedReloadHandoff(active, candidate *runtimeGeneration, abortConnections bool) *stagedReloadHandoff {
 	return &stagedReloadHandoff{
 		preparedGeneration: candidate,
 		oldControlPlane:    active.controlPlane,
@@ -192,7 +193,6 @@ func newStagedReloadHandoff(active, candidate *runtimeGeneration, abortConnectio
 		newCancel:          candidate.cancel,
 		newListener:        candidate.listener,
 		abortConnections:   abortConnections,
-		hasOverlap:         hasOverlap,
 	}
 }
 
@@ -370,7 +370,6 @@ func (r *Runner) Run() (err error) {
 	currCancel = cancel
 	configureTransparentHugePages(log, conf.Global.DisableTHP)
 	configureGcMemoryLimit(log)
-	configureGOMAXPROCS(log)
 	c, err := newControlPlane(ctx, log, nil, nil, conf, externGeoDataDirs, false, false)
 	if err != nil {
 		cancel()
@@ -794,7 +793,6 @@ loop:
 					oldC := handoff.oldControlPlane
 					oldCancel := handoff.oldCancel
 					abortConnections := handoff.abortConnections
-					hasOverlap := handoff.hasOverlap
 					if oldC != nil && !handoff.freshDatapath && !handoff.bpfTransferred {
 						bpf := oldC.EjectBpf()
 						serveControlPlane.InjectBpf(bpf)
@@ -834,7 +832,7 @@ loop:
 					handoff.oldRuntimeStopped = true
 
 					if oldC != nil {
-						reloadManager.startControlPlaneRetirement(w.log, oldC, w.c, oldCancel, abortConnections, hasOverlap, runtimeSupervisor, retiringGeneration)
+						reloadManager.startControlPlaneRetirement(w.log, oldC, w.c, oldCancel, abortConnections, runtimeSupervisor, retiringGeneration)
 					}
 				}
 				_ = sdnotify.Ready()

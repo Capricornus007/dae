@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -66,8 +67,8 @@ func newReloadManager(reloadReqs chan reloadRequest, runStateChanges chan struct
 	return m
 }
 
-func (m *reloadManager) queueReloadRequest(log *logrus.Logger, req reloadRequest) bool {
-	return tryQueueReloadRequest(log, m.reloadReqs, &m.reloadActive, &m.reloadPending, req)
+func (m *reloadManager) queueReloadRequest(log *logrus.Logger, req reloadRequest) {
+	tryQueueReloadRequest(log, m.reloadReqs, &m.reloadActive, &m.reloadPending, req)
 }
 
 func (m *reloadManager) beginHandoff() {
@@ -406,7 +407,6 @@ func (m *reloadManager) startControlPlaneRetirement(
 	successor *control.ControlPlane,
 	oldCancel context.CancelFunc,
 	abortConnections bool,
-	hasOverlap bool,
 	supervisor *runtimeSupervisor,
 	retiringGeneration *runtimeGeneration,
 ) {
@@ -456,7 +456,7 @@ func (m *reloadManager) startControlPlaneRetirement(
 		}()
 
 		oldControlPlane.MarkRetired()
-		retireControlPlaneConnections(log, retireCtx, oldControlPlane, abortConnections, hasOverlap, drainBudget)
+		retireControlPlaneConnections(log, retireCtx, oldControlPlane, abortConnections, drainBudget)
 
 		if oldCancel != nil {
 			oldCancel()
@@ -474,7 +474,7 @@ func (m *reloadManager) startControlPlaneRetirement(
 	}(task)
 }
 
-func (m *reloadManager) refreshPprofServer(log *logrus.Logger, server **http.Server, port uint16) {
+func (m *reloadManager) refreshPprofServer(server **http.Server, port uint16) {
 	if server == nil {
 		return
 	}
@@ -540,14 +540,6 @@ func preserveReloadInterfaceBindings(oldConf, newConf *config.Config) []string {
 	}
 	lan := append([]string(nil), newConf.Global.LanInterface...)
 	wan := append([]string(nil), newConf.Global.WanInterface...)
-	contains := func(values []string, target string) bool {
-		for _, value := range values {
-			if value == target {
-				return true
-			}
-		}
-		return false
-	}
 	remove := func(values []string, target string) []string {
 		result := values[:0]
 		for _, value := range values {
@@ -562,9 +554,9 @@ func preserveReloadInterfaceBindings(oldConf, newConf *config.Config) []string {
 	oldLAN := make(map[string]struct{}, len(oldConf.Global.LanInterface))
 	for _, iface := range oldConf.Global.LanInterface {
 		oldLAN[iface] = struct{}{}
-		changed := !contains(lan, iface) || contains(wan, iface)
+		changed := !slices.Contains(lan, iface) || slices.Contains(wan, iface)
 		wan = remove(wan, iface)
-		if !contains(lan, iface) {
+		if !slices.Contains(lan, iface) {
 			lan = append(lan, iface)
 		}
 		if changed {
@@ -575,9 +567,9 @@ func preserveReloadInterfaceBindings(oldConf, newConf *config.Config) []string {
 		if _, isLAN := oldLAN[iface]; isLAN {
 			continue
 		}
-		changed := !contains(wan, iface) || contains(lan, iface)
+		changed := !slices.Contains(wan, iface) || slices.Contains(lan, iface)
 		lan = remove(lan, iface)
-		if !contains(wan, iface) {
+		if !slices.Contains(wan, iface) {
 			wan = append(wan, iface)
 		}
 		if changed {

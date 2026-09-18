@@ -266,13 +266,12 @@ func isGSOSupported(uc *net.UDPConn) bool {
 	return serr == nil
 }
 func isGSOError(err error) bool {
-	var serr *os.SyscallError
-	if errors.As(err, &serr) {
+	if serr, ok := errors.AsType[*os.SyscallError](err); ok {
 		// EIO is returned by udp_send_skb() if the device driver does not have tx checksums enabled,
 		// which is a hard requirement of UDP_SEGMENT. See:
 		// https://git.kernel.org/pub/scm/docs/man-pages/man-pages.git/tree/man7/udp.7?id=806eabd74910447f21005160e90957bde4db0183#n228
 		// https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/net/ipv4/udp.c?h=v6.2&id=c9c3395d5e3dcc6daee66c6908354d47bf98cb0c#n942
-		return serr.Err == unix.EIO || serr.Err == unix.EINVAL
+		return errors.Is(serr.Err, unix.EIO) || errors.Is(serr.Err, unix.EINVAL)
 	}
 	return false
 }
@@ -368,7 +367,7 @@ func (p *AnyfromPool) Close() {
 	p.Reset()
 }
 
-func (p *AnyfromPool) getOrCreateWithMark(lAddr netip.AddrPort, soMark uint32, ttl time.Duration) (conn *Anyfrom, isNew bool, err error) {
+func (p *AnyfromPool) getOrCreateWithMark(lAddr netip.AddrPort, soMark uint32) (conn *Anyfrom, isNew bool, err error) {
 	key := anyfromPoolKey{lAddr: lAddr, soMark: soMark}
 	shard := p.shardForKey(key)
 
@@ -414,7 +413,7 @@ func (p *AnyfromPool) getOrCreateWithMark(lAddr netip.AddrPort, soMark uint32, t
 	shard.mu.RUnlock()
 
 	// Only one goroutine per identity shard reaches here, so creation is safe.
-	newAf, err := p.createAnyfromSocket(lAddr, soMark, ttl)
+	newAf, err := p.createAnyfromSocket(lAddr, soMark)
 
 	shard.mu.Lock()
 	defer shard.mu.Unlock()
@@ -438,7 +437,8 @@ func (p *AnyfromPool) getOrCreateWithMark(lAddr netip.AddrPort, soMark uint32, t
 // createAnyfromSocket creates a new Anyfrom socket without holding any pool locks.
 // This is called after a cache miss, allowing concurrent socket creation for
 // identities assigned to different shards without holding the map lock.
-func (p *AnyfromPool) createAnyfromSocket(lAddr netip.AddrPort, soMark uint32, ttl time.Duration) (*Anyfrom, error) {
+func (p *AnyfromPool) createAnyfromSocket(lAddr netip.AddrPort, soMark uint32) (*Anyfrom, error) {
+	ttl := AnyfromTimeout
 	d := net.ListenConfig{
 		Control: func(network string, address string, c syscall.RawConn) error {
 			if err := dialer.TransparentControl(c); err != nil {

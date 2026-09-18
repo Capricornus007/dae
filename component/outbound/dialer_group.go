@@ -262,7 +262,7 @@ func (g *DialerGroup) HandleNoAliveDialer(
 	logInterval := max(g.cachedMinCheckInterval*5, 10*time.Second)
 
 	if g.tryDoRateLimitedAction(&g.noAliveLogLastTimes[idx], logInterval) {
-		g.logNoAlive(origNetworkType, selectionNetworkType, src, dst, domain, strictIpVersion, logInterval)
+		g.logNoAlive(origNetworkType, selectionNetworkType, src, dst, domain, logInterval)
 	}
 }
 
@@ -297,7 +297,6 @@ func (g *DialerGroup) logNoAlive(
 	src netip.AddrPort,
 	dst netip.AddrPort,
 	domain string,
-	strictIpVersion bool,
 	interval time.Duration,
 ) {
 	total := len(g.Dialers)
@@ -330,10 +329,6 @@ func (g *DialerGroup) Select(networkType *dialer.NetworkType, strictIpVersion bo
 // failover scenarios). Note that Fixed policy ignores 'excluded' because user
 // configuration takes precedence over automatic exclusion.
 // If 'strictIpVersion' is false and no alive dialer, it will fallback to another ipversion.
-func (g *DialerGroup) SelectWithExclusion(networkType *dialer.NetworkType, strictIpVersion bool, excluded *dialer.Dialer) (d *dialer.Dialer, latency time.Duration, err error) {
-	d, latency, _, err = g.SelectWithExclusionResult(networkType, strictIpVersion, excluded)
-	return d, latency, err
-}
 
 // SelectWithExclusionResult returns the chosen dialer together with the health
 // domain actually used to admit that dialer. For ordinary selections this is

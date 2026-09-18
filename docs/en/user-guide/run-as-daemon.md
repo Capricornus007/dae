@@ -28,17 +28,19 @@ Download the sample config file:
 
 ```bash
 mkdir -p /etc/dae
-curl -L -o /etc/dae/config.dae https://github.com/daeuniverse/dae/raw/main/example.dae
+curl -L -o /etc/dae/config.dae https://github.com/olicesx/dae/raw/main/example.dae
 chmod 600 /etc/dae/config.dae
 ```
 
 ## Download pre-compiled binaries
 
-Releases are available in <https://github.com/daeuniverse/dae/releases>
+Upstream releases are available in <https://github.com/daeuniverse/dae/releases>.
+This fork publishes no GitHub Releases: its binaries are the artifacts of the
+`Build (Main)` workflow, and its source revisions are tagged `latest`.
 
 > **Note**: If you would like to get a taste of new features, there are nightly (latest) builds available. Most of the time, newly proposed changes will be included in `PRs` and will be exported as cross-platform executable binaries in builds (GitHub Action Workflow Build). Noted that newly introduced features are sometimes buggy, do it at your own risk. However, we still highly encourage you to check out our latest builds as it may help us further analyze features stability and resolve potential bugs accordingly.
 
-Nightly builds are available in <https://github.com/daeuniverse/dae/actions/workflows/build-nightly.yml>
+This fork's builds are available in <https://github.com/olicesx/dae/actions/workflows/build.yml>
 
 ```bash
 sudo chmod +x ./dae
@@ -54,12 +56,31 @@ dae version
 
 ```bash
 # download the sample systemd.service
-sudo curl -L -o /etc/systemd/system/dae.service https://github.com/daeuniverse/dae/raw/main/install/dae.service
+sudo curl -L -o /etc/systemd/system/dae.service https://github.com/olicesx/dae/raw/main/install/dae.service
 
 # reload and restart daemon to take effect
 sudo systemctl daemon-reload
 sudo systemctl enable dae --now
 sudo systemctl status dae
+```
+
+## Memory and transparent huge pages
+
+`GOMEMLIMIT` is derived from the process's cgroup ceiling, not from a unit
+setting: only `memory.max` participates (the bundled unit no longer sets
+`MemoryHigh`, which the runtime cannot observe as a bound), the derived soft
+limit is 90% of that ceiling, and an explicit `GOMEMLIMIT` environment variable
+always wins.
+
+On a host with transparent huge pages set to `always`, the kernel can inflate
+dae's resident set without the live Go heap growing. `disable_thp: true` opts
+the process out with `prctl(PR_SET_THP_DISABLE)`; the default (`false`) leaves
+the kernel's policy untouched:
+
+```shell
+global {
+  disable_thp: true
+}
 ```
 
 ## Check System Logs

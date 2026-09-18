@@ -7,6 +7,7 @@ package control
 
 import (
 	"context"
+	stderrors "errors"
 	"fmt"
 	"net/netip"
 
@@ -103,7 +104,7 @@ func endpointNetworkTypeForSelection(requestedNetworkType *dialer.NetworkType, a
 	return &endpointType
 }
 
-func (c *ControlPlane) chooseProxyDialer(ctx context.Context, p *proxyDialParam) (*proxyDialResult, error) {
+func (c *ControlPlane) chooseProxyDialer(p *proxyDialParam) (*proxyDialResult, error) {
 	outboundIndex := p.Outbound
 	domain := p.Domain
 	src := p.Src
@@ -183,7 +184,7 @@ func (c *ControlPlane) chooseProxyDialer(ctx context.Context, p *proxyDialParam)
 
 	strictIpVersion := dialIp
 	d, _, admissionNetworkType, err := outbound.SelectWithExclusionResult(selectionNetworkType, strictIpVersion, p.Excluded)
-	if err == ob.ErrNoAliveDialer {
+	if stderrors.Is(err, ob.ErrNoAliveDialer) {
 		// Fallback for UDP/TCP: if selection failed (probably due to health check fail),
 		// try the other IP version if strictIpVersion is not absolutely required by domain routing.
 		altType := alternateNetworkType(selectionNetworkType)
@@ -245,7 +246,7 @@ func (c *ControlPlane) routeDial(ctx context.Context, p *proxyDialParam) (netpro
 	var lastRes *proxyDialResult
 	var lastErr error
 	for attempt := range 2 {
-		res, err := c.chooseProxyDialer(ctx, p)
+		res, err := c.chooseProxyDialer(p)
 		if err != nil {
 			return nil, res, err
 		}

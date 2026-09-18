@@ -1346,18 +1346,13 @@ func (d *Dialer) ReportAvailableTraffic(typ *NetworkType) {
 	}
 }
 
-// Check performs a basic connectivity check.
-// Backward compatibility wrapper for check(opts, false, nil).
-func (d *Dialer) Check(opts *CheckOption) (ok bool, err error) {
-	return d.check(opts, false, nil)
-}
-
+// check performs a basic connectivity check for one dialer.
 func (d *Dialer) check(opts *CheckOption, isResuscitation bool, cycle *cycleResult) (ok bool, err error) {
 	const maxAttempts = 2
 	var bestLatency time.Duration
 	checkedAt := time.Now()
 
-	for i := 0; i < maxAttempts; i++ {
+	for range maxAttempts {
 		ctx, cancel := context.WithTimeout(d.ctx, Timeout)
 		start := time.Now()
 		ok, err = opts.CheckFunc(ctx, opts.networkType)
@@ -1372,7 +1367,7 @@ func (d *Dialer) check(opts *CheckOption, isResuscitation bool, cycle *cycleResu
 		if stderrors.Is(err, context.Canceled) {
 			break
 		}
-		if err == nil || err == ErrNoApplicableIP || stderrors.Is(err, errCheckOptionUnavailable) {
+		if err == nil || stderrors.Is(err, ErrNoApplicableIP) || stderrors.Is(err, errCheckOptionUnavailable) {
 			// No applicable IP, a plain skip, or a probe-infrastructure
 			// failure (check option cannot be built); don't retry — the DNS
 			// record or the option will not change between two attempts
@@ -1477,8 +1472,7 @@ func (d *Dialer) HttpCheck(ctx context.Context, networkIdx int, u *netutils.URL,
 	}
 	resp, err := cli.Do(req)
 	if err != nil {
-		var netErr net.Error
-		if stderrors.As(err, &netErr); netErr.Timeout() {
+		if netErr, ok := stderrors.AsType[net.Error](err); ok && netErr.Timeout() {
 			err = fmt.Errorf("timeout")
 		}
 		return false, err
