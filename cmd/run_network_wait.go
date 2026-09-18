@@ -69,10 +69,15 @@ func waitForNetworkOnline(ctx context.Context, client *http.Client, log *logrus.
 			// Always wait before the next attempt: a request that fails
 			// instantly (rather than consuming the retry interval, as a
 			// timeout does) must not turn this loop into a busy spin.
+			// NewTimer (unlike time.After) is stopped explicitly, so a
+			// cancelled wait does not leave the timer registered until it
+			// fires.
+			timer := time.NewTimer(interval)
 			select {
 			case <-ctx.Done():
+				timer.Stop()
 				return attempts, false, ctx.Err()
-			case <-time.After(interval):
+			case <-timer.C:
 			}
 			continue
 		}
@@ -83,10 +88,12 @@ func waitForNetworkOnline(ctx context.Context, client *http.Client, log *logrus.
 		if log != nil {
 			log.Infof("Bad status: %v (%v)", resp.Status, resp.StatusCode)
 		}
+		timer := time.NewTimer(interval)
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return attempts, false, ctx.Err()
-		case <-time.After(interval):
+		case <-timer.C:
 		}
 	}
 }
