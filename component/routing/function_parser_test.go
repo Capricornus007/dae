@@ -183,3 +183,34 @@ func TestPlainParserFactoryKeepsForwardingTheKey(t *testing.T) {
 	require.NoError(t, parser(valueOnlyTestLogger(), &config_parser.Function{Name: consts.Function_Domain}, string(consts.RoutingDomainKey_Suffix), []string{"a.com"}, &Outbound{}))
 	require.Equal(t, string(consts.RoutingDomainKey_Suffix), got)
 }
+
+// TestProcessNameKeepsFullCommWidth pins the pname width against the datapath
+// contract. control/kern/tproxy.c copies up to TASK_COMM_LEN bytes of the real
+// command name out of argv[0] and does not reserve a NUL there, so a
+// 16-character name is stored with its last byte set; the match compares the
+// whole [TaskCommLen]byte. Trimming the rule to 15 characters - the state this
+// fork carried after the kdae sync merge resolved the conflict the wrong way -
+// made every such rule silently unable to match.
+func TestProcessNameKeepsFullCommWidth(t *testing.T) {
+	const name16 = "abcdefghABCDEFGH"
+	require.Equal(t, consts.TaskCommLen, len(name16))
+
+	got := toProcessName(name16)
+	require.Equal(t, name16, string(got[:]), "a full-width comm name must survive intact")
+	require.NotEqual(t, byte(0), got[consts.TaskCommLen-1], "the 16th byte must not be dropped")
+
+	// Shorter names stay zero-padded, exactly as the kernel leaves them.
+	got = toProcessName("curl")
+	require.Equal(t, [consts.TaskCommLen]byte{'c', 'u', 'r', 'l'}, got)
+
+	// Longer names are truncated to the width the datapath can compare, and
+	// the parser must still accept them (it only warns about the trim).
+	var names [][consts.TaskCommLen]byte
+	parser := ProcessNameParserFactory(func(_ *config_parser.Function, n [][consts.TaskCommLen]byte, _ *Outbound) error {
+		names = n
+		return nil
+	})
+	require.NoError(t, parser(valueOnlyTestLogger(), &config_parser.Function{Name: consts.Function_ProcessName}, "", []string{name16 + "overflow"}, &Outbound{}))
+	require.Len(t, names, 1)
+	require.Equal(t, name16, string(names[0][:]))
+}
