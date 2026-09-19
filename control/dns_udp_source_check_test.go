@@ -17,7 +17,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// These tests pin the observe-only upstream source validation of P2-6: the
+// These tests pin the observe-only upstream source validation of: the
 // datagram source reported by the transport is compared with the endpoint dae
 // dialed, mismatches are counted and rate-limit logged, and nothing is dropped
 // until every transport is known to report a truthful source.

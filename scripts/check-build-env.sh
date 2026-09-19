@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Single-owner gate for build inputs that CI must not restate.
 #
-# P3-19: GOEXPERIMENT is owned by the Makefile (DEFAULT_GOEXPERIMENT). CI and
+# GOEXPERIMENT is owned by the Makefile (DEFAULT_GOEXPERIMENT). CI and
 # the Dockerfile read it with `make -s print-goexperiment`. Before this gate
 # the release workflow built with a 4-tuple while Docker and local builds used
 # a 2-tuple, so "reproduce the released performance in a container" was
 # structurally impossible (dae_docker_repro.log).
 #
-# P3-23: the geo data pins live in scripts/fetch-geo-data.sh. The Dockerfile
+# The geo data pins live in scripts/fetch-geo-data.sh. The Dockerfile
 # cannot call that script, so its ARG defaults are cross-checked here instead
 # of being left to drift.
 #

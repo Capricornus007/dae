@@ -168,14 +168,14 @@ func BenchmarkSniffer_SniffTcp_NotApplicable(b *testing.B) {
 	}
 }
 
-// Allocation budgets, measured before and after the P3-4 review.
+// Allocation budgets, measured before and after the review.
 //
 // Measured baseline on the review machine (go1.26, amd64, -benchtime 2000x):
 //
 //	BenchmarkSniffer_SniffUdp_QUIC   5909 ns/op  5427 B/op  60 allocs/op
 //	BenchmarkIsLikelyQuicInitialPacket 0.28 ns/op   0 B/op   0 allocs/op
 //
-// P3-4 proposed moving the HKDF/AES construction off the per-packet path by
+// proposed moving the HKDF/AES construction off the per-packet path by
 // reusing a cipher suite per destination connection ID. That change was NOT
 // made: QUIC Initial keys are per (version, DCID) and the sniffer only ever
 // sees a flow's first packets, so the win is bounded to a handful of packets
@@ -198,7 +198,7 @@ func TestSniffAllocationBudget(t *testing.T) {
 		_ = sniffer.Close()
 	})
 	if quicAllocs > 60 {
-		t.Fatalf("SniffQuic allocations = %v/op, budget 60 (P3-4 baseline)", quicAllocs)
+		t.Fatalf("SniffQuic allocations = %v/op, budget 60 (baseline)", quicAllocs)
 	}
 
 	tlsAllocs := testing.AllocsPerRun(20, func() {

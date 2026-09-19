@@ -101,7 +101,7 @@ var (
 	// UAPI bitfields of struct iphdr/struct tcphdr. Their allocation order
 	// follows the target's endianness, not the wire format, so reading them
 	// directly made the datapath classify packets wrongly on big-endian
-	// builds (P1-1). The datapath must only touch the raw header bytes.
+	// builds. The datapath must only touch the raw header bytes.
 	bitfieldReadPattern = regexp.MustCompile(`->(ihl|version|doff|syn|ack|fin|rst|psh|ece|cwr|urg|res1)\b`)
 )
 
@@ -131,7 +131,7 @@ func TestEventRateStructLayoutContract(t *testing.T) {
 
 	// Two u64 fields first (so the struct has no implicit padding between
 	// them), then the reserved rate keys, then an explicit pad that keeps the
-	// C sizeof free of alignment holes. eventRateValue() mirrors this order
+	// C sizeof free of alignment holes. eventRateValue mirrors this order
 	// with an explicit trailing byte array to match the C sizeof; the parity
 	// of the two sizes is enforced at load time by ebpf.VariableSpec.Set.
 	want := []string{

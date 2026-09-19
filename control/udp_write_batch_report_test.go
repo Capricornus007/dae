@@ -36,7 +36,7 @@ func (r *sentReportRecorder) snapshot() []sentReport {
 	return append([]sentReport(nil), r.reports...)
 }
 
-// TestBatchFlushReportsOnlySentDatagrams is the P3-25 regression: a batched
+// TestBatchFlushReportsOnlySentDatagrams is a regression guard: a batched
 // endpoint only queues datagrams in WriteTo, so the upload meter and the health
 // report must be driven from the flush, with the count the transport actually
 // accepted.
@@ -76,7 +76,7 @@ func TestBatchFlushReportsOnlySentDatagrams(t *testing.T) {
 	agg.Close()
 }
 
-// TestBatchFlushFailureIsReportedAndCounted pins the second half of P3-25: a
+// TestBatchFlushFailureIsReportedAndCounted pins the second second half: a
 // failed flush used to be swallowed by the endpoint's tolerated-error policy
 // (no report, no count, no log) while the caller had already counted the
 // datagrams as uploaded. The failure must be counted and the partial send
@@ -136,7 +136,7 @@ func TestBatchShortWriteIsReported(t *testing.T) {
 }
 
 // TestBatchCallerSideAccountingIsGated is the source contract for the caller
-// half of P3-25: udp.go must not meter or health-report datagrams that were
+// second half: udp.go must not meter or health-report datagrams that were
 // only queued into the batch aggregator.
 func TestBatchCallerSideAccountingIsGated(t *testing.T) {
 	src, err := os.ReadFile("udp.go")

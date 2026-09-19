@@ -14,7 +14,7 @@ import (
 )
 
 // These tests pin the base-key index that RemoveDnsRespCacheFamily and the
-// knowledge resync rely on (P1-3). The index is what turns a reject verdict from
+// knowledge resync rely on. The index is what turns a reject verdict from
 // a table-wide scan under cacheProjectionMu into a keyed lookup; if it silently
 // drifts, family removal would stop matching entries without any visible
 // failure, which is why drift must be both repairable and reported.
@@ -74,7 +74,7 @@ func TestRemoveDnsRespCacheFamilyRemovesOnlyIndexedFamily(t *testing.T) {
 }
 
 // TestRemoveDnsRespCacheFamilyMissDoesNotTakeProjectionWriteLock pins the
-// P1-3 property itself: a base key with no indexed entries must return without
+// property itself: a base key with no indexed entries must return without
 // the projection write lock. The test holds the read lock, so a write lock
 // attempt cannot complete; the call is given a bounded budget to return inside.
 func TestRemoveDnsRespCacheFamilyMissDoesNotTakeProjectionWriteLock(t *testing.T) {

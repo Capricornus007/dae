@@ -851,7 +851,7 @@ func TestDialerGroup_Select_SingleDialerLenientFallsBackToFixed(t *testing.T) {
 	}
 }
 
-// TestPublishAliveChangeWithoutAliveSetIsPolicyDriven is the P3-13 regression:
+// TestPublishAliveChangeWithoutAliveSetIsPolicyDriven is a regression guard:
 // when the network type has no AliveDialerSet, publishAliveChange used to trust
 // the incoming bool, which could write 0 into the kernel outbound-connectivity
 // slot for a group that is usable (Fixed groups have no set at all and no probe

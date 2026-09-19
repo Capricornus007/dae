@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestValidateRoutingRulesRejectsIllegalRules is the P3-5 regression: `dae
+// TestValidateRoutingRulesRejectsIllegalRules is a regression guard: `dae
 // validate` used to accept any config that parsed, so an illegal rule set (a
 // rule the daemon refuses at startup) exited 0. It now dry-runs the run-time
 // rule validation chain.

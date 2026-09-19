@@ -13,7 +13,7 @@ import (
 	"testing"
 )
 
-// TestTCPOffloadFuseEngageIsAllOrNothing is the P3-11 source contract. A
+// TestTCPOffloadFuseEngageIsAllOrNothing is the source contract. A
 // partially engaged pause is worse than a failed engage: the caller only drops
 // the fds from epoll (delFds) after a successful engage, and the fuse state
 // must therefore never be published before both map updates succeeded.

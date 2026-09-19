@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Release asset names have exactly one source: install/friendly-filenames.json.
 #
-# P3-20: the matrix legs for riscv64 (base, rva20u64, rva22u64, rva23u64) all
+# The matrix legs for riscv64 (base, rva20u64, rva22u64, rva23u64) all
 # resolved to the single key "linux-riscv64", so three of the four legs
 # published the same asset name and the declared rva22/rva23 builds were never
 # produced under a distinguishable name. Two failure modes are asserted here:

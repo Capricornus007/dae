@@ -89,8 +89,22 @@ func TestEnsureBpfPinDirReportsRealFailure(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected an error when a path component is a regular file")
 	}
-	if !strings.Contains(err.Error(), "cannot create bpf pin directory") {
-		t.Fatalf("unexpected error: %v", err)
+	msg := err.Error()
+	// The production path always wraps the raw mkdir cause, but the wrapper it
+	// picks depends on the host's /sys/fs/bpf state. Assert against the same
+	// source of truth instead of assuming a mounted pin root, so the test means
+	// the same thing on a developer box, in a container and on a CI runner.
+	if !strings.Contains(msg, "not a directory") || !strings.Contains(msg, consts.AppName) {
+		t.Fatalf("error %q dropped the raw mkdir cause or the pin path", msg)
+	}
+	if isBpfPinRootMounted() {
+		if !strings.Contains(msg, "cannot create bpf pin directory") {
+			t.Fatalf("unexpected error with a mounted pin root: %v", err)
+		}
+		return
+	}
+	if !strings.Contains(msg, "not a bpffs mount") {
+		t.Fatalf("unexpected error without a mounted pin root: %v", err)
 	}
 }
 

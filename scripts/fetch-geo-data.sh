@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Fetch the pinned geo data used by the release, daily and container builds.
 #
-# P3-23: both files used to be downloaded from `releases/latest/download`,
+# Both files used to be downloaded from `releases/latest/download`,
 # which makes a rebuild of the same dae tag non-reproducible and unverifiable.
 # They are now pinned by upstream release tag and verified with `sha256sum -c`
 # (fail-closed: a mismatch aborts the build).

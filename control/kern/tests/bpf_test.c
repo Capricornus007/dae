@@ -855,10 +855,12 @@ int testsetup_wan_egress_udp_expired_state_recreates_handoff(
 	state = bpf_map_lookup_elem(&conn_state_map, &ctx->key);
 	if (!state)
 		return TC_ACT_SHOT;
-	/* Anchor staleness to the monotonic clock instead of an absolute 0:
-	 * BPF_PROG_TEST_RUN may run on a freshly booted host whose uptime is
-	 * still below UDP_CONN_STATE_TIMEOUT_NS, which would make 0 look fresh
-	 * and take the existing-state path instead of the expired-state path.
+	/* Seed a state that is expired by exactly one nanosecond. Test builds
+	 * shorten UDP_CONN_STATE_TIMEOUT_NS (see the Makefile) so this stays a
+	 * real past timestamp on a freshly booted host: with the production
+	 * 300-second backstop the subtraction wraps, and the future-timestamp
+	 * guard in udp_conn_state_expired() then keeps the entry alive, which
+	 * would silently exercise the existing-state path instead.
 	 */
 	state->last_seen_ns =
 		bpf_ktime_get_ns() - UDP_CONN_STATE_TIMEOUT_NS - 1;
@@ -972,7 +974,7 @@ int testpktgen_tcp_pure_syn_preserves_live_state(struct __sk_buff *skb)
 }
 
 /*
- * P3-14: a pure SYN that reuses the tuple of a live ACTIVE flow (an illegal
+  *: a pure SYN that reuses the tuple of a live ACTIVE flow (an illegal
  * mid-stream SYN the kernel answers with a challenge ACK) must not delete or
  * rewrite that flow's routing decision while the flow still belongs to the
  * current generation. Its liveness is still refreshed, a routingless entry
@@ -2775,7 +2777,7 @@ ab_build_ipv4_udp(struct __sk_buff *skb, __u32 saddr, __u32 daddr,
 	return 0;
 }
 
-/* P1-1: the IP version/ihl and TCP doff/flags bytes must be read raw. */
+/*: the IP version/ihl and TCP doff/flags bytes must be read raw. */
 SEC("tc/ab_test/raw_header_parse")
 int test_ab_raw_header_parse(struct __sk_buff *skb)
 {
@@ -2827,7 +2829,7 @@ ab_redirect_key_ipv4(struct redirect_tuple *key, const struct tuples_key *five)
 	key->dip.u6_addr32[3] = five->dip.u6_addr32[3];
 }
 
-/* P1-8 + P3-18(a): the reply binding is single-writer while fresh, refreshed
+/* +(a): the reply binding is single-writer while fresh, refreshed
  * in place by its own publisher, and rebindable once stale. */
 SEC("tc/ab_test/redirect_rebind_lock")
 int test_ab_redirect_rebind_lock(struct __sk_buff *skb)
@@ -2934,7 +2936,7 @@ ab_mark_syn(struct tuples_key *key, bool with_routing, __u8 outbound,
 			     0, syn_epoch_slot) ? 0 : 1;
 }
 
-/* P3-14: a same-tuple pure SYN must not rewrite a live ACTIVE flow's routing
+/*: a same-tuple pure SYN must not rewrite a live ACTIVE flow's routing
  * metadata, but must still refresh its liveness. */
 SEC("tc/ab_test/syn_rebind_lock")
 int test_ab_syn_rebind_lock(struct __sk_buff *skb)
@@ -3040,7 +3042,7 @@ ab_stage_two_epochs(__u32 active_slot)
  * the entry must carry afterwards.
  *
  * Same epoch: the lock keeps the flow's routing untouched and counts the
- * refusal (P3-14). Different epoch: the entry is dropped and re-created from
+  * refusal . Different epoch: the entry is dropped and re-created from
  * the current epoch's decision, and counted as re-routed - "after the rules
  * changed, a new connection uses the new rules" - with no comparison of the
  * two decisions anywhere in the datapath.
@@ -3138,7 +3140,7 @@ int test_ab_syn_rebind_epoch_change(struct __sk_buff *skb)
 	int ret;
 
 	(void)skb;
-	/* Same epoch (entry slot 0, SYN on slot 0): still locked (P3-14). */
+		/* Same epoch (entry slot 0, SYN on slot 0): still locked . */
 	ret = ab_syn_epoch_case(0, 0, 0);
 	if (ret)
 		return ret;
@@ -3349,7 +3351,7 @@ static __always_inline bool ab_rate_slot_is_untouched(__u32 key)
 	return slot && *slot == 0;
 }
 
-/* P2-30: an established TCP packet with no cached routing is forwarded (policy
+/*: an established TCP packet with no cached routing is forwarded (policy
  * unchanged) and counted per packet. A burst of packets must therefore count
  * exactly one per packet and emit no event at all: the event this path used to
  * emit shared one 1s budget across every affected flow, so the normal steady
@@ -3383,7 +3385,7 @@ int test_ab_stateless_tcp_passthrough(struct __sk_buff *skb)
 	return 0;
 }
 
-/* P3-16 (decision A20): an unsolicited WAN-ingress UDP flow is COUNTED but
+/* (decision A20): an unsolicited WAN-ingress UDP flow is COUNTED but
  * still tracked. Creating the entry is what carries the
  * is_wan_ingress_direction marker that host-terminated UDP replies rely on, so
  * the counter is observability, not enforcement. A flow that already has state
@@ -3433,7 +3435,7 @@ int test_ab_unsolicited_udp_wan_ingress(struct __sk_buff *skb)
 	return 0;
 }
 
-/* P2-8: a non-initial fragment is still forwarded and counted per packet, with
+/*: a non-initial fragment is still forwarded and counted per packet, with
  * no per-event emission: forwarding it is the intended policy, and the tuple
  * such an event could carry has no L4 header to read (the parser returns
  * before L4 parsing), so it reported scratch ports rather than wire data. */
@@ -3464,7 +3466,7 @@ int test_ab_frag_tail_passthrough(struct __sk_buff *skb)
 	return 0;
 }
 
-/* P2-31: "the IP header parsed but the L4 protocol is not routed" and "this is
+/*: "the IP header parsed but the L4 protocol is not routed" and "this is
  * not an IP frame" are distinct return codes, and the first one is counted at
  * the consumer without changing its decision. */
 SEC("tc/ab_test/parse_return_code_split")
@@ -3516,7 +3518,7 @@ int test_ab_parse_return_code_split(struct __sk_buff *skb)
 	return 0;
 }
 
-/* P3-18(c): with no so_mark injected the reserved-bit test is the last-resort
+/*(c): with no so_mark injected the reserved-bit test is the last-resort
  * fallback, and it is counted. */
 SEC("tc/ab_test/control_plane_sockmark_fallback")
 int test_ab_control_plane_sockmark_fallback(struct __sk_buff *skb)

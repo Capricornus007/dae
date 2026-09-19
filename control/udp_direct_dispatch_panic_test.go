@@ -55,7 +55,7 @@ func assertIngressTaskZeroed(t *testing.T, task *udpIngressTask) {
 	}
 }
 
-// TestDirectDispatchTaskPanicIsolation is the P1-4 regression: a panic in one
+// TestDirectDispatchTaskPanicIsolation is a regression guard: a panic in one
 // directly dispatched packet must not escape its goroutine, and it must be
 // counted through the production reporter.
 func TestDirectDispatchTaskPanicIsolation(t *testing.T) {
@@ -80,7 +80,7 @@ func TestDirectDispatchTaskPanicIsolation(t *testing.T) {
 }
 
 // TestDirectDispatchTaskPanicReleasesResourcesExactlyOnce locks the "recover
-// must not release anything" half of P1-4: Run's own defers already returned
+// must not release anything" second half: Run's own defers already returned
 // the dispatch slot, the admission ticket, the packet buffer, and the pooled
 // task during the unwind, so the recovery handler must add no release of its
 // own.
@@ -147,7 +147,7 @@ func TestDirectDispatchTaskPanicReleasesResourcesExactlyOnce(t *testing.T) {
 	}
 }
 
-// TestDirectDispatchSpawnSitePanicIsolation is the source contract for P1-4:
+// TestDirectDispatchSpawnSitePanicIsolation is the source contract for:
 // both goroutine spawn sites on the UDP ingress path (the direct-dispatch task
 // and the ingress read loop) must run under a recover, and the recovery must
 // not re-release the resources Run's defers already released.

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Artifact-level assertions for the build inputs that used to be declared in
-# several places (P2-22 trace build tag, P3-19 GOEXPERIMENT).
+# several places (the trace build tag and GOEXPERIMENT).
 #
 # Audit rule: assert on the artifact (`go version -m`), never on intent
 # (.build_tags, workflow env). Both directions are asserted so a bogus

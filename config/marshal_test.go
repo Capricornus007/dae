@@ -234,7 +234,7 @@ routing {
 	}
 }
 
-// TestMarshalPolicyFixedListIsSupported is the P3-2 regression: a group whose
+// TestMarshalPolicyFixedListIsSupported is a regression guard: a group whose
 // policy is written as a function call (`policy: fixed(0)`) stores an
 // any-typed []*config_parser.Function, which marshalLeaf's interface switch had
 // no case for and rejected as an "unknown leaf type".

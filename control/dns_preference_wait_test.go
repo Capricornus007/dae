@@ -16,7 +16,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// These tests pin the two P2-7 properties that can be fixed without deciding
+// These tests pin the two properties that can be fixed without deciding
 // the qtypePrefer answer semantics: the resolution delay is released by answers
 // served from the response cache, and it runs on the delivery side instead of
 // inside the singleflight leader.
@@ -134,7 +134,7 @@ func TestDeliveryAppliesResolutionDelay(t *testing.T) {
 	}
 }
 
-// TestApplyPreferenceWaitNeverSubstitutesTheAnswer guards the semantics P1-2
+// TestApplyPreferenceWaitNeverSubstitutesTheAnswer guards the semantics
 // still has to decide: the delay may not change the delivered answer.
 func TestApplyPreferenceWaitNeverSubstitutesTheAnswer(t *testing.T) {
 	ctrl := newSemanticsController(t)

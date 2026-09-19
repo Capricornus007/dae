@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# P2-22 ledger gate for the "dae trace is not built for this GOARCH" declaration.
+# Ledger gate for the "dae trace is not built for this GOARCH" declaration.
 #
 # TRACE_UNSUPPORTED_GOARCH is a checked-in claim about what the toolchain can do.
 # Without a gate it rots in both directions:

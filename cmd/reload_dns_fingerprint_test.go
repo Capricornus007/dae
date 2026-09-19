@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestDNSConfigFingerprintKeepsAllFunctionParams is the P3-3 regression: the
+// TestDNSConfigFingerprintKeepsAllFunctionParams is a regression guard: the
 // fingerprint used to render functions with Function.String, whose display form
 // ellipsizes params from index 5 on, so a DNS fallback or rule function with
 // six or more params could fingerprint identical to a different one and the

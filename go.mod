@@ -111,31 +111,26 @@ require (
 	google.golang.org/grpc v1.79.1 // indirect
 )
 
-// Use the custom quic-go fork for the verified GSO, key-update, congestion-
-// control, and explicit-transport address behavior. Performance and security
-// claims are enforced in the fork's own unit/race gates; no GC behavior is
-// inferred from pool implementation choice here.
+// Custom quic-go fork: GSO write paths, key-update handling, congestion
+// control, and explicit transport-address behavior.
 replace github.com/olicesx/quic-go => github.com/olicesx/quic-go v0.0.0-20260910141758-62d80bbebb5b
 
 //replace github.com/cilium/ebpf v0.20.0
 //replace github.com/daeuniverse/dae-config-dist/go/dae_config => /home/mzz/antlrProjects/dae-config/build/go/dae_config
 
-// Remote outbound fork: Trojan UDP CRLF, sticky role-header dispatch,
-// scoped h2 MarkDead, 8KiB direct small-tier, TUIC stream-parse bench,
-// and protocol lifecycle/framing/short-write hardening. Adds AnyTLS
-// remote-FIN data preservation, gRPC zero-deadline clearing, and
-// chain-constructed dialer ownership. Includes cancellable dial queues,
-// immediate TUIC retirement signals, and explicit write-deadline behavior.
-// Now also: symmetric-direct WriteMsgUDP keeps OOB cmsgs (QUIC GSO),
-// bbr3 low-RTT pacing-cwnd deadlock broken with a CwndGain-scaled
-// pacing-support floor, STARTUP no longer aborts on background loss,
-// and hy2 defaults to bbr3 again. TLS records are coalesced into one socket
-// write per burst across anytls and the shared tls/ws transports (-35% to
-// -52% write syscalls measured on trojan and trojan-wss relay paths).
-// The current revision also keeps the REALITY ClientHello post-quantum free,
-// rebuilds a randomized fingerprint's ClientHello until it offers a usable
-// TLS 1.3 key share, authenticates REALITY handshakes with AES-GCM (the
-// algorithm both reference servers decrypt with) instead of deriving it from
-// the offered cipher suites, and resolves uTLS fingerprint names the way
-// Xray and sing-box do.
+// Custom outbound fork: protocol lifecycle and framing hardening, cancellable
+// dial queues, UDP write-path cmsg preservation, and congestion-control fixes.
+// This revision resolves optional conn capabilities through every wrapper
+// layer (SSR obfs cipher hooks, XTLS/vision absorption, TLS ALPN checks) and
+// adds end-to-end suites for every protocol in the repository. It also fixes
+// the dropped close_notify on TLS half-close, a dial-path panic when an h2
+// CONNECT is denied, out-of-bounds naive padding on 32-bit builds, vmess UDP
+// targets encoded with the IPv6 addr type, the missing shadowsocks-2022
+// response request-salt verification, and the simple-obfs response-header
+// bound ordering. This revision also authenticates REALITY handshakes with
+// AES-GCM, the algorithm both reference servers decrypt with, instead of
+// deriving it from the offered cipher suites, reports fingerprints that provide
+// no usable TLS 1.3 key share, rebuilds the ClientHello up to sixteen times
+// while a randomized fingerprint has not produced one, and resolves fingerprint
+// names the way Xray and sing-box do.
 replace github.com/daeuniverse/outbound => github.com/olicesx/outbound v0.0.0-sticky-ip.0.20260918090140-cc86ced2e683

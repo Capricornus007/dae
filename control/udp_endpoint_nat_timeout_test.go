@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// TestUpdateNatTimeoutSkipsUnchangedValue is the P3-24 regression: the UDP fast
+// TestUpdateNatTimeoutSkipsUnchangedValue is a regression guard: the UDP fast
 // paths recompute the same effective NAT timeout on every packet, and each call
 // used to take the natTimeout write lock, force a deadline bump and refresh the
 // cached reply sockets. An unchanged value must hand the renewal back to the

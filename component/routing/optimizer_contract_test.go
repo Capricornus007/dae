@@ -112,7 +112,7 @@ func TestMergeAndSortRulesOptimizerMergesPositiveSingletons(t *testing.T) {
 // TestMergeAndSortRulesOptimizerDoesNotMergeInvertedSingletons ensures that
 // inverted (!) singleton rules are NOT merged, because De Morgan's law makes
 // !f(a)->X OR !f(b)->X inequivalent to !f(a,b)->X. Regression test for the
-// optimizer correctness bug surfaced in the routing review (P1-2).
+// optimizer correctness bug surfaced in the routing review.
 func TestMergeAndSortRulesOptimizerDoesNotMergeInvertedSingletons(t *testing.T) {
 	rules := []*config_parser.RoutingRule{
 		{

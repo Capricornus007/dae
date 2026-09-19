@@ -183,7 +183,7 @@ routing {
 	}
 }
 
-// TestMissingOptionalSectionsStillApplyDefaults is the P3-1 regression: a
+// TestMissingOptionalSectionsStillApplyDefaults is a regression guard: a
 // config that omits an optional section must decode that section from an empty
 // section so its documented `default:` tags apply, instead of silently keeping
 // the Go zero values (a missing dns section used to leave MaxCacheSize == 0,

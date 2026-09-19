@@ -20,7 +20,7 @@ func pinnedUDPRefs(m *SessionManager, key bpfTuplesKey) int {
 	return m.pinnedUDP[key]
 }
 
-// TestTrackUdpConnStateTuplePairMovesPins is the P3-17 regression: the tracker
+// TestTrackUdpConnStateTuplePairMovesPins is a regression guard: the tracker
 // used to accumulate one pin per observed tuple pair for the endpoint's whole
 // lifetime, so a long-lived endpoint permanently pinned tuples it no longer
 // served and the janitor could never retire them. A pair change must release
@@ -48,7 +48,7 @@ func TestTrackUdpConnStateTuplePairMovesPins(t *testing.T) {
 	ue.TrackUdpConnStateTuplePair(third, fourth)
 	for _, key := range []bpfTuplesKey{oldForward, oldReverse} {
 		if got := pinnedUDPRefs(manager, key); got != 0 {
-			t.Fatalf("P3-17 regression: superseded tuple %+v still pinned (refs=%d)", key, got)
+			t.Fatalf("regression: superseded tuple %+v still pinned (refs=%d)", key, got)
 		}
 	}
 	for _, key := range []bpfTuplesKey{newForward, newReverse} {
@@ -74,7 +74,7 @@ func TestTrackUdpConnStateTuplePairMovesPins(t *testing.T) {
 }
 
 // TestTrackUdpConnStateTuplePairKeepsSharedTuple is the "do not over-release"
-// half of P3-17: when the same tuple is tracked by two endpoints, one
+// second half: when the same tuple is tracked by two endpoints, one
 // endpoint's pair change must only drop its own reference. The physical
 // conn_state entry survives until the last owner releases it.
 func TestTrackUdpConnStateTuplePairKeepsSharedTuple(t *testing.T) {
@@ -120,7 +120,7 @@ func TestTrackUdpConnStateTuplePairKeepsSharedTuple(t *testing.T) {
 		t.Fatalf("shared tuple refs after one owner moved = %d, want 1 (the other owner)", got)
 	}
 	if connMap != nil && !connStateExists(connMap, sharedForward) {
-		t.Fatal("P3-17 regression: the shared conn_state entry was deleted while another endpoint still pins it")
+		t.Fatal("regression: the shared conn_state entry was deleted while another endpoint still pins it")
 	}
 	if got := pinnedUDPRefs(manager, otherForward); got != 1 {
 		t.Fatalf("moved owner's new tuple refs = %d, want 1", got)

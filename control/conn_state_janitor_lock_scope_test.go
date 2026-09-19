@@ -16,7 +16,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// TestJanitorLockScopeContract is the P3-8 source contract: the janitor must
+// TestJanitorLockScopeContract is the source contract: the janitor must
 // scope each key class to the lock that protects it (UDP -> udpStateMu, TCP ->
 // generationsMu) instead of taking both, and it must not park the critical
 // section on a deferred unlock that drags the trailing stats/logging inside it.
@@ -62,7 +62,7 @@ func TestJanitorLockScopeContract(t *testing.T) {
 	}
 }
 
-// TestJanitorUdpDeleteDoesNotTakeGenerationsMu is the behavioral half of P3-8:
+// TestJanitorUdpDeleteDoesNotTakeGenerationsMu is the behavioral half of:
 // with generationsMu held by another goroutine (a TCP flow registration), a
 // UDP-only cleanup cycle must still complete and delete its entries. Before the
 // split the janitor took generationsMu for every cycle, so this would block.

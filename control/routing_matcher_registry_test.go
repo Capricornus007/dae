@@ -48,7 +48,7 @@ func routingRegistryRejectsAsUnknown(t *testing.T, rb *routing.RulesBuilder, nam
 	return err != nil && strings.Contains(err.Error(), "unknown function")
 }
 
-// TestRoutingProgramParserRegistryIsShared pins the P3-5 follow-up: `dae
+// TestRoutingProgramParserRegistryIsShared pins the follow-up: `dae
 // validate` and `dae run` must reach the same function registry through
 // control.RegisterRoutingProgramParsers, so a routing function added to the run
 // path can never be silently accepted... or rather silently rejected... by the

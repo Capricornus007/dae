@@ -11,7 +11,7 @@ import (
 	"github.com/daeuniverse/dae/pkg/config_parser"
 )
 
-// TestMergeAndSortRulesKeepsAllOutboundParams is the P3-3 regression for the
+// TestMergeAndSortRulesKeepsAllOutboundParams is the regression for the
 // rule-merge identity site: the merge decision compared Outbound.String, whose
 // display form ellipsizes params from index 5 on, so two rules whose outbounds
 // differ only in a late param were treated as the same outbound and merged.

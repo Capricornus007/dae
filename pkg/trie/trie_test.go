@@ -157,7 +157,7 @@ func TestNewTrieFromPrefixesEmpty(t *testing.T) {
 	}
 }
 
-// TestPrefix2bin128NormalizesIPv4MappedPrefixes is the P2-1 regression: an
+// TestPrefix2bin128NormalizesIPv4MappedPrefixes is a regression guard: an
 // IPv4-mapped prefix written with an IPv4 bit count (::ffff:1.2.3.0/24, the
 // shape produced by 16-byte geoip encodings) used to be stored as the first
 // 24 bits of the mapped form - all zero - so it matched every IPv4 address.
@@ -199,7 +199,7 @@ func TestTrieIPv4MappedPrefixDoesNotMatchAllIPv4(t *testing.T) {
 	}
 	for _, addr := range []string{"8.8.8.8", "1.2.4.1", "192.168.1.1", "2001:db8::1"} {
 		if lookup(addr) {
-			t.Fatalf("P2-1 regression: ::ffff:1.2.3.0/24 must not match %v", addr)
+			t.Fatalf("regression: ::ffff:1.2.3.0/24 must not match %v", addr)
 		}
 	}
 }

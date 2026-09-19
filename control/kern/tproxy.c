@@ -481,7 +481,7 @@ struct conn_state {
 	// TCP state. UDP entries leave this as TCP_STATE_ACTIVE.
 	__u8 state;
 
-	// Last seen timestamp in nanoseconds (bpf_ktime_get_ns()).
+	// Last seen timestamp in nanoseconds (bpf_ktime_get_ns).
 	// Userspace janitor periodically cleans up expired entries by protocol.
 	__u64 last_seen_ns;
 
@@ -581,7 +581,7 @@ static __always_inline void bump_stat(__u32 key)
 // owner instead of a two-sided convention.
 struct dae_event_rate {
 	__u64 window_ns;                // per-key minimum spacing between emissions
-	__u64 redirect_rebind_stale_ns; // reply-binding freeze window (P1-8)
+	__u64 redirect_rebind_stale_ns; // reply-binding freeze window
 	__u32 blocked_key;              // reserved rate key for DAE_EVENT_BLOCKED
 	__u32 redirect_rebind_key;      // ... DAE_EVENT_REDIRECT_REBIND_REJECTED
 	__u32 overflow_key;             // ... the conn-state/map overflow events
@@ -637,24 +637,24 @@ enum dae_event_type {
 	DAE_EVENT_UDP_CONN_OVERFLOW = 1, // UDP conn state map overflow
 	DAE_EVENT_TCP_CONN_OVERFLOW = 2, // TCP conn state map overflow
 	DAE_EVENT_BLOCKED_ALIVE = 3, // Connection blocked (outbound not alive)
-	// A different publisher tried to steal a fresh reply binding (P1-8).
+	// A different publisher tried to steal a fresh reply binding.
 	DAE_EVENT_REDIRECT_REBIND_REJECTED = 4,
-	// A pure SYN was refused rewrite of an ACTIVE flow's routing (P3-14).
+	// A pure SYN was refused rewrite of an ACTIVE flow's routing.
 	DAE_EVENT_SYN_REBIND_REJECTED = 5,
-	// Reserved, never emitted (P2-30): established TCP forwarded without a
+	// Reserved, never emitted: established TCP forwarded without a
 	// cached routing decision is the normal state of every pre-existing flow
 	// after a restart, so it is counted per packet
 	// (BPF_STATS_STATELESS_TCP_PASSTHROUGH) and summarised by userspace on the
 	// health tick instead of warning per event. The number stays reserved so
 	// the remaining types keep their wire values.
 	DAE_EVENT_RESERVED_STATELESS_TCP_PASSTHROUGH = 6,
-	// Reserved, never emitted (P2-8): forwarding a non-initial fragment is the
+	// Reserved, never emitted: forwarding a non-initial fragment is the
 	// intended policy and it is counted per packet
 	// (BPF_STATS_FRAG_TAIL_PASSED). The tuple such an event could carry has no
 	// L4 header to read either: the parser returns before L4 parsing
 	// (parse_transport_fast), so its ports are scratch values, not wire data.
 	DAE_EVENT_RESERVED_FRAG_TAIL_PASSED = 7,
-	// redirect_track could not store a reply binding (P2-29). The matching
+	// redirect_track could not store a reply binding. The matching
 	// bpf_stats_map key separates "map full" from "update failed".
 	DAE_EVENT_REDIRECT_UPDATE_FAILED = 8,
 	// A pure SYN on a live flow was re-routed because the flow's cached
@@ -829,7 +829,7 @@ send_blocked_event(__u8 outbound, __u8 l4proto, const __u32 *sip,
 // many flows are affected, and the tuple it reports is one arbitrary sample.
 // Only use it for a genuine anomaly. A path that is the normal steady state
 // (established TCP without cached routing after a restart, a forwarded
-// fragment tail) must count per packet with bump_stat() instead and let
+// fragment tail) must count per packet with bump_stat instead and let
 // userspace summarise the counter's interval delta, or the log carries one
 // warning per second for as long as the state lasts.
 static __always_inline void
@@ -1084,7 +1084,7 @@ parse_transport_fast(struct __sk_buff *skb, __u32 link_h_len,
 		if (iphdr_ihl(iph_ptr) < 5)
 			return -EFAULT;
 
-		// Copy saddr/daddr early so get_tuples() works for PARSE_FRAGMENT.
+		// Copy saddr/daddr early so get_tuples works for PARSE_FRAGMENT.
 		// The version/ihl byte is copied raw: the UAPI bitfields cannot be
 		// trusted on big-endian targets.
 		((__u8 *)iph)[0] = ((const __u8 *)iph_ptr)[0];
@@ -1542,7 +1542,7 @@ struct {
 #define CT_ARGS_HAS_MAC      BIT(1)
 #define CT_ARGS_HAS_PNAME    BIT(2)
 /* Set by __mark_tcp_seen when a pure SYN reached a live ACTIVE flow and must
- * not rewrite its routing decision or reply binding (P3-14). */
+  * not rewrite its routing decision or reply binding . */
 #define CT_ARGS_REBIND_LOCKED BIT(3)
 
 struct conntrack_args {
@@ -2055,7 +2055,7 @@ static __always_inline int redirect_to_control_plane_ingress(void)
 static __always_inline int redirect_to_control_plane_egress(void)
 {
 	__u32 ifindex = get_dae0_ifindex();
-	// bpf_redirect_peer() is NOT supported in egress direction.
+	// bpf_redirect_peer is NOT supported in egress direction.
 	// Only use it for ingress hooks.
 	return bpf_redirect(ifindex, 0);
 }
@@ -2148,7 +2148,7 @@ static __always_inline bool mac6_equal(const __u8 *a, const __u8 *b)
 /* publish_redirect_track_for_packet stores the reply-path binding of a
  * redirected flow.
  *
- * P1-8: the entry is keyed by the forward tuple and carries the
+  *: the entry is keyed by the forward tuple and carries the
  * interface/MAC to send replies to. Updating it unconditionally on every
  * redirected packet let a competing writer (e.g. a spoofer reusing the
  * victim's tuple) hand the victim's replies to itself for as long as it kept
@@ -2286,7 +2286,13 @@ static __always_inline bool is_short_lived_udp_traffic(struct tuples_key *key)
 
 // mark_udp_seen: update/create UDP conn state with optional routing metadata.
 // Expired entries are pruned on lookup. Map overflow increments bpf_stats_map.
+// UDP_CONN_STATE_TIMEOUT_NS is overridable so test builds can shorten the
+// backstop: with the 300-second value the expired-state path is unreachable on
+// a host whose uptime is below it, because a seeded past timestamp wraps and
+// udp_conn_state_expired() then treats the entry as live.
+#ifndef UDP_CONN_STATE_TIMEOUT_NS
 #define UDP_CONN_STATE_TIMEOUT_NS 300000000000ULL        // 300-second backstop, aligned with QuicNatTimeout; userspace endpoint teardown is the primary owner
+#endif
 #define UDP_CONN_STATE_UPDATE_INTERVAL_NS 1000000000ULL  // 1 second
 
 enum udp_conn_state_status {
@@ -2301,7 +2307,14 @@ enum udp_conn_state_status {
 static __always_inline bool
 udp_conn_state_expired(const struct conn_state *state, __u64 now)
 {
-	return state && now - state->last_seen_ns > UDP_CONN_STATE_TIMEOUT_NS;
+	if (!state)
+		return false;
+	/* Guard against a timestamp in the future (clock slew, seeded state):
+	 * without this, now - last_seen_ns underflows and live entries expire. */
+	__u64 last_seen_ns = state->last_seen_ns;
+
+	return now > last_seen_ns &&
+	       now - last_seen_ns > UDP_CONN_STATE_TIMEOUT_NS;
 }
 
 static __always_inline bool
@@ -2463,7 +2476,10 @@ tcp_conn_state_expired(const struct conn_state *state, __u64 now)
 	 * pinned session from stale kernel state. */
 	if (!state || state->state != TCP_STATE_CLOSING)
 		return false;
-	return now - state->last_seen_ns > TCP_CONN_STATE_CLOSING_TIMEOUT_NS;
+	/* Same future-timestamp guard as the UDP expiry path: a last_seen_ns
+	 * in the future would underflow and reap a live CLOSING entry early. */
+	return now > state->last_seen_ns &&
+	       now - state->last_seen_ns > TCP_CONN_STATE_CLOSING_TIMEOUT_NS;
 }
 
 /* routing_generation_matches reports whether a live flow's cached routing was
@@ -2527,7 +2543,7 @@ __mark_tcp_seen(struct tuples_key *key, bool is_wan_ingress_direction,
 	 * FIN/RST was observed previously), drop it now so the new connection does
 	 * not inherit stale routing metadata.
 	 *
-	 * Exception (P3-14): an ACTIVE entry that carries a routing decision
+	 * Exception: an ACTIVE entry that carries a routing decision
 	 * belongs to a live flow, and a same-tuple pure SYN is then an illegal
 	 * mid-stream SYN that the kernel answers with a challenge ACK instead of
 	 * opening a connection. Deleting the entry there let a single spoofed SYN
@@ -2880,7 +2896,7 @@ tproxy_lan_ingress_role(struct __sk_buff *skb, __u32 link_h_len,
 					  ROUTING_EPOCH_SLOT_UNKNOWN);
 		/* No cached state for an established packet: keep the historical
 		 * passthrough behavior instead of recomputing routing, and count
-		 * it (P2-30) without warning per event. This is what every
+		 * it without warning per event. This is what every
 		 * pre-existing TCP flow does after a restart, and it silently
 		 * bypasses routing today: a steady state must not log one line
 		 * per second, so the counter is the per-packet record and
@@ -2948,7 +2964,7 @@ tproxy_lan_ingress_role(struct __sk_buff *skb, __u32 link_h_len,
 
 			// Fast path: Use cached routing if available
 			if (udp_state && udp_state->meta.data.has_routing) {
-				// Load routing from conn state - skip expensive route() call!
+				// Load routing from conn state - skip expensive route call!
 				__u8 outbound = udp_state->meta.data.outbound;
 				__u32 mark = udp_state->meta.data.mark;
 
@@ -3516,7 +3532,7 @@ do_tproxy_wan_egress_tcp(struct __sk_buff *skb, __u32 link_h_len,
 		if (!tcp_conn) {
 			/* No conn state for an established TCP packet: this is
 			 * what every pre-existing flow does after a restart, and
-			 * it silently bypasses routing (P2-30). Keep the
+			 * it silently bypasses routing. Keep the
 			 * historical passthrough and count it; no per-event
 			 * warning, for the same reason as the LAN-ingress twin
 			 * above. */
@@ -3959,7 +3975,7 @@ load_redirect_tuple(struct __sk_buff *skb,
  * conservative failure of this test is to stop refreshing the entry, which
  * lets the userspace janitor expire it, whereas the optimistic failure would
  * hand a frozen binding an unlimited lease and make the 2s window
- * unrecoverable (P1-8).
+  * unrecoverable .
  */
 static __always_inline bool
 reply_publisher_matches(struct __sk_buff *skb,

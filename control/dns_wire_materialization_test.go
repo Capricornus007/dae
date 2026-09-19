@@ -112,7 +112,7 @@ func TestCopySectionWithTTLPolicy(t *testing.T) {
 	}
 }
 
-// TestPrepackAndInPlaceShareRecordTtlPolicy is the P3-7 regression: both
+// TestPrepackAndInPlaceShareRecordTtlPolicy is a regression guard: both
 // materializations must apply the same record-level TTL policy, so they cannot
 // drift into disagreeing about which records are re-stamped.
 func TestPrepackAndInPlaceShareRecordTtlPolicy(t *testing.T) {
@@ -177,13 +177,13 @@ func TestPrepackAndInPlaceShareRecordTtlPolicy(t *testing.T) {
 }
 
 // TestFillIntoWithTTLInPlaceReportsPackFailure keeps the formerly swallowed
-// Pack() error visible instead of degrading into a silent cache miss.
+// Pack error visible instead of degrading into a silent cache miss.
 func TestFillIntoWithTTLInPlaceReportsPackFailure(t *testing.T) {
 	cache := &DnsCache{
 		Deadline: time.Now().Add(time.Minute),
 		Answer:   []dnsmessage.RR{&dnsmessage.A{Hdr: dnsmessage.RR_Header{Name: "bad.test.", Rrtype: dnsmessage.TypeA, Class: dnsmessage.ClassINET, Ttl: 60}, A: []byte{1, 2, 3}}},
 	}
-	// An answer name that cannot be packed makes Pack() fail.
+	// An answer name that cannot be packed makes Pack fail.
 	req := new(dnsmessage.Msg)
 	req.Question = []dnsmessage.Question{{Name: "bad.test.", Qtype: dnsmessage.TypeA, Qclass: dnsmessage.ClassINET}}
 	req.Response = true
@@ -201,7 +201,7 @@ func TestFillIntoWithTTLInPlaceReportsPackFailure(t *testing.T) {
 	}
 }
 
-// TestCachedResponseEchoesRequesterQuestionCase is the P3-6 regression: the
+// TestCachedResponseEchoesRequesterQuestionCase is a regression guard: the
 // response cache stores one canonical spelling per name, so the delivered
 // response must carry the spelling the requester actually used.
 func TestCachedResponseEchoesRequesterQuestionCase(t *testing.T) {

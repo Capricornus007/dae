@@ -15,7 +15,7 @@ import (
 	"github.com/daeuniverse/outbound/pool"
 )
 
-// TestSenderStopRecycleDoesNotDoubleRelease locks the P3-10 invariant that was
+// TestSenderStopRecycleDoesNotDoubleRelease locks the invariant that was
 // at risk of being "fixed" into a double free: in the senderStop branch the read
 // loop hands the reply back with releaseDataWhenNoOwner=false because its own
 // defer still owns the very same backing array. Releasing there as well would
@@ -71,7 +71,7 @@ func TestSenderStopRecycleDoesNotDoubleRelease(t *testing.T) {
 	}
 }
 
-// TestSenderStopRecycleCallSiteContract is the source contract for P3-10: the
+// TestSenderStopRecycleCallSiteContract is the source contract for: the
 // parameter name must say what it means, and the senderStop branch must keep
 // passing false while the read loop's defer keeps releasing the buffer.
 func TestSenderStopRecycleCallSiteContract(t *testing.T) {

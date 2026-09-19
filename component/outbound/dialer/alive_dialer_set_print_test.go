@@ -58,7 +58,7 @@ func (w *lockProbeWriter) counts() (renders int, locked []string) {
 	return w.renders, append([]string(nil), w.locked...)
 }
 
-// TestNotifyLatencyDoesNotHoldWriteLockDuringFormatting is the P2-27
+// TestNotifyLatencyDoesNotHoldWriteLockDuringFormatting is the
 // regression: the latency listing used to be sorted and written to the log
 // while holding AliveDialerSet.mu, so every other latency update (and the 30s
 // health cycle for the whole group) queued behind a full-list render plus a
@@ -113,7 +113,7 @@ func TestNotifyLatencyDoesNotHoldWriteLockDuringFormatting(t *testing.T) {
 	}
 }
 
-// TestLatencySnapshotIsByValue guards the hard requirement behind P2-27: the
+// TestLatencySnapshotIsByValue guards the hard requirement behind: the
 // snapshot must copy everything the renderer needs, because aliveEntries is
 // mutated in place (append / swap-remove) and dialerToLatency is replaced
 // wholesale by recomputeSelectionStateLocked. Under -race, leaking either

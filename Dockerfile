@@ -1,4 +1,4 @@
-# TODO(P3-23): pin the base images by digest. `docker manifest inspect` and
+# TODO: pin the base images by digest. `docker manifest inspect` and
 # skopeo cannot reach registry-1.docker.io from the audit environment, so no
 # digest is recorded here — do not invent one. Replace the tags below with
 # `<repo>@sha256:<digest>` once a registry lookup is available.
@@ -13,7 +13,7 @@ RUN go mod download
 COPY . .
 RUN make OUTPUT=dae VERSION="${VERSION}" GOFLAGS="-buildvcs=false" CC=clang CGO_ENABLED=0
 
-# TODO(P3-23): same digest pin pending (the `alpine` tag is mutable).
+# TODO: same digest pin pending (the `alpine` tag is mutable).
 FROM alpine
 
 # Geo data is pinned by upstream release tag and verified with sha256sum -c.

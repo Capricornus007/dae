@@ -44,7 +44,7 @@ tcp_offload_skb_key(struct sk_buff *skb, struct tuples_key *key)
 	/* version is the raw first IP byte, so the version nibble is tested by
 	 * mask rather than by shift: a shift right by four here is
 	 * indistinguishable from a UAPI bitfield extraction in the object code,
-	 * and the datapath keeps the big-endian object free of those (P1-1).
+	 	 * and the datapath keeps the big-endian object free of those .
 	 * The two forms are equivalent for a byte: >> 4 == 4 iff the high
 	 * nibble is 4.
 	 */

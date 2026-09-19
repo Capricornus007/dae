@@ -23,7 +23,9 @@ import (
 	"bytes"
 	"crypto/rand"
 	"encoding/binary"
+	"errors"
 	"io"
+	"io/fs"
 	"net"
 	"os"
 	"testing"
@@ -54,6 +56,13 @@ func loadOffloadVerifyCollection(t *testing.T) *ebpf.Collection {
 	t.Logf("offload object: %s", object)
 	spec, err := ebpf.LoadCollectionSpec(object)
 	if err != nil {
+		// A clean checkout has no generated object until `make ebpf` runs; the
+		// stub-tagged unit-test job does not build one, so this kernel-level
+		// harness skips instead of failing there. An explicitly requested
+		// object that cannot be loaded is still a hard error.
+		if os.Getenv("DAE_TCP_OFFLOAD_TEST_OBJECT") == "" && errors.Is(err, fs.ErrNotExist) {
+			t.Skipf("offload object %s is not built; run `make ebpf` first", object)
+		}
 		t.Fatalf("LoadCollectionSpec: %v", err)
 	}
 	keepProg := map[string]bool{
