@@ -7,7 +7,7 @@ dae 支持以下代理协议：
 | HTTP(S)、naiveproxy | — | [HTTP(S)](#https) |
 | Socks | **版本**： Socks4 / Socks4a / Socks5 | [Socks](#socks) |
 | VMess / VLESS | **VMess**： AEAD, alterID=0<br>**传输**： TCP / WS / gRPC / Meek / HTTPUpgrade<br>**TLS**：支持 Reality | [v2rayN](https://github.com/2dust/v2rayN/wiki/%E5%88%86%E4%BA%AB%E9%93%BE%E6%8E%A5%E6%A0%BC%E5%BC%8F%E8%AF%B4%E6%98%8E(ver-2))<br>[DuckSoft](https://github.com/XTLS/Xray-core/discussions/716) |
-| Shadowsocks | **加密**： AEAD / Stream Ciphers<br>**插件**： simple-obfs / shadow-tls (SIP003)，参阅[插件说明](#shadowsocks-插件) | [SIP002](https://shadowsocks.org/doc/sip002.html)<br>[SIP008](https://shadowsocks.org/doc/sip008.html) |
+| Shadowsocks | **加密**： AEAD / Stream Ciphers<br>**插件**：simple-obfs / shadow-tls (SIP003)，参阅[插件说明](#shadowsocks-插件) | [SIP002](https://shadowsocks.org/doc/sip002.html)<br>[SIP008](https://shadowsocks.org/doc/sip008.html) |
 | ShadowsocksR | — | — |
 | Trojan | Trojan-gfw / Trojan-go | [trojan/trojan-go](https://p4gefau1t.github.io/trojan-go/developer/url) |
 | Tuic | **版本**： v5 | [Tuic](https://github.com/daeuniverse/dae/discussions/182) |
