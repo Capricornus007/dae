@@ -129,6 +129,24 @@ changed. Review them before upgrading:
   A successful upgrade delivers the complete answer where the client used to
   receive TC=1, so no configuration change is needed; the observable difference
   is that these answers now resolve on the first query.
+- A LAN client's UDP packet is no longer handed to a socket on the dae host
+  before routing unless that socket is bound to the packet's exact destination
+  address. Any socket listening on the destination port used to capture it, so a
+  wildcard-bound service — a resolver on port 53 above all — swallowed LAN
+  traffic addressed elsewhere and dae never saw the packet. Such traffic now goes
+  through routing and the DNS module, which is what makes advertising the dae
+  host as the LAN DNS server work; a setup that relied on the old capture answers
+  with an explicit `must_direct` rule instead (see
+  `docs/*/configuration/dns.md`, `docs/*/configuration/external-dns.md`).
+  Upstream `daeuniverse/dae#1110`.
+- A stale `/run/netns/daens` mount point the kernel locked (`umount`,
+  `umount -l`, `umount -f` all `EINVAL`, `rm` `EBUSY`, typical of dae inside an
+  LXC/Proxmox VE container) no longer blocks startup behind the misleading
+  `failed to create netns: open /run/netns/daens: file exists`. dae now recognises
+  that exact signature, covers `/run/netns` with a fresh tmpfs and starts clean.
+  The cover hides every other named netns in that mount namespace until the next
+  reboot, and any other refusal still fails fast, now with the real errnos. See
+  `docs/*/troubleshooting.md` and upstream `daeuniverse/dae#1109`.
 
 ### v2.0.0 (Latest)
 
