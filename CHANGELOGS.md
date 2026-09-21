@@ -148,6 +148,10 @@ changed. Review them before upgrading:
   reboot, and any other refusal still fails fast, now with the real errnos. See
   `docs/*/troubleshooting.md` and upstream `daeuniverse/dae#1109`.
 
+#### Bug Fixes
+
+- fix(control): flush short TCP splice writes without corking
+
 ### v2.0.0 (Latest)
 
 > Release date: 2026/07/08
