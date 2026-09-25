@@ -55,6 +55,17 @@ type nodeSpec struct {
 
 	Plugin     string // ss 的 v2ray-plugin / simple-obfs
 	PluginOpts string
+
+	// SSR 專用（dae 的 outbound 有註冊 shadowsocksr）
+	Proto      string // origin / auth_sha256_v1 ...
+	ProtoParam string
+	SsrObfs    string // plain / http_simple ...
+	ObfsParam  string
+
+	// juicity / naiveproxy 的帳號（anytls 用 Password 當 auth）
+	User        string
+	PinnedCert  string
+	NaiveScheme string // naive+https 或 naive+quic
 }
 
 var errUnsupportedProtocol = fmt.Errorf("unsupported protocol")
@@ -77,6 +88,14 @@ func (p *nodeSpec) toDaeLink() (string, error) {
 		return p.hysteria2Link()
 	case "tuic":
 		return p.tuicLink()
+	case "ssr", "shadowsocksr":
+		return p.ssrLink()
+	case "juicity":
+		return p.juicityLink()
+	case "anytls":
+		return p.anytlsLink()
+	case "naive", "naiveproxy":
+		return p.naiveLink()
 	default:
 		// snell / hysteria(v1) / wireguard / shadow-tls / anytls / naiveproxy /
 		// brook / juicity / trusttunnel / socks：dae 沒有對應的 dialer
@@ -301,6 +320,61 @@ func (p *nodeSpec) tuicLink() (string, error) {
 		RawQuery: q.Encode(),
 		Fragment: p.remark(),
 	}
+	return u.String(), nil
+}
+
+// ssrLink 照 dae 的 ParseSSRURL：`ssr://host:port:proto:method:obfs:b64(pass)/?
+// remarks=&protoparam=&obfsparam=`，三個參數都是 base64url；它對「host 內含冒號」
+// （IPv6）有專門的再切分邏輯，所以這裡直接照原樣拼。
+func (p *nodeSpec) ssrLink() (string, error) {
+	if p.Cipher == "" {
+		return "", fmt.Errorf("ssr 節點缺少加密方式")
+	}
+	enc := func(v string) string { return base64.URLEncoding.EncodeToString([]byte(v)) }
+	body := fmt.Sprintf("%s:%s:%s:%s:%s", p.hostPort(), p.Proto, p.Cipher, p.SsrObfs, enc(p.Password))
+	q := fmt.Sprintf("remarks=%s&protoparam=%s&obfsparam=%s", enc(p.remark()), enc(p.ProtoParam), enc(p.ObfsParam))
+	return "ssr://" + body + "/?" + q, nil
+}
+
+func (p *nodeSpec) juicityLink() (string, error) {
+	if p.Password == "" {
+		return "", fmt.Errorf("juicity 節點缺少密碼")
+	}
+	q := p.query()
+	if p.CongestionControl != "" {
+		q.Set("congestion_control", p.CongestionControl)
+	}
+	if p.PinnedCert != "" {
+		q.Set("pinned_certchain_sha256", p.PinnedCert)
+	}
+	user := url.User(p.Password)
+	if p.User != "" {
+		user = url.UserPassword(p.User, p.Password)
+	}
+	u := url.URL{Scheme: "juicity", User: user, Host: p.hostPort(), RawQuery: q.Encode(), Fragment: p.remark()}
+	return u.String(), nil
+}
+
+func (p *nodeSpec) anytlsLink() (string, error) {
+	if p.Password == "" {
+		return "", fmt.Errorf("anytls 節點缺少密碼")
+	}
+	q := p.query()
+	u := url.URL{Scheme: "anytls", User: url.User(p.Password), Host: p.hostPort(), RawQuery: q.Encode(), Fragment: p.remark()}
+	return u.String(), nil
+}
+
+// naiveLink：dae 的 naive dialer 只認 `naive+https://` 與 `naive+quic://` 兩種 scheme。
+func (p *nodeSpec) naiveLink() (string, error) {
+	scheme := p.NaiveScheme
+	if scheme != "naive+quic" {
+		scheme = "naive+https"
+	}
+	user := url.User(p.Password)
+	if p.User != "" {
+		user = url.UserPassword(p.User, p.Password)
+	}
+	u := url.URL{Scheme: scheme, User: user, Host: p.hostPort(), Fragment: p.remark()}
 	return u.String(), nil
 }
 
