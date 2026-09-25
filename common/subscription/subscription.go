@@ -228,7 +228,18 @@ resolve:
 			nodes = clashNodes
 		} else {
 			log.Debugln(clashErr)
-			nodes = ResolveSubscriptionAsBase64(log, b)
+			// sing-box JSON 排在 v2rayN 之前：兩者都是 outbounds 陣列，但欄位名
+			// 完全不同，先試哪個都不會誤判（對不上就回 error）。
+			var sbErr, vnErr error
+			if nodes, sbErr = ResolveSubscriptionAsSingBox(log, b); sbErr == nil {
+				// ok
+			} else if nodes, vnErr = ResolveSubscriptionAsV2rayN(log, b); vnErr == nil {
+				// ok
+			} else {
+				log.Debugln(sbErr)
+				log.Debugln(vnErr)
+				nodes = ResolveSubscriptionAsBase64(log, b)
+			}
 		}
 		if len(nodes) == 0 {
 			return "", nil, fmt.Errorf("subscription resolved to 0 nodes")
