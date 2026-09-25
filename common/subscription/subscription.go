@@ -221,7 +221,15 @@ resolve:
 		}
 	} else {
 		log.Debugln(err)
-		nodes = ResolveSubscriptionAsBase64(log, b)
+		// Clash YAML 排在 base64 之前：兩者不會誤判（base64 內容無法 unmarshal 成
+		// 帶 proxies 段的結構），但把 clash 放後面會讓「既有 URI 清單又有 proxies
+		// 段」的混排配置被 base64 搶走、只解出半數節點。
+		if clashNodes, clashErr := ResolveSubscriptionAsClash(log, b); clashErr == nil {
+			nodes = clashNodes
+		} else {
+			log.Debugln(clashErr)
+			nodes = ResolveSubscriptionAsBase64(log, b)
+		}
 		if len(nodes) == 0 {
 			return "", nil, fmt.Errorf("subscription resolved to 0 nodes")
 		}
