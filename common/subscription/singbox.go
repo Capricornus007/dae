@@ -200,14 +200,16 @@ func (o *singBoxOutbound) toSpec() *nodeSpec {
 		return nil
 	}
 	s := &nodeSpec{
-		Name:              firstNonEmpty(o.Tag, fmt.Sprintf("%s:%d", o.Server, o.ServerPort)),
-		Type:              normalizeSingBoxType(o.Type),
-		Server:            o.Server,
-		Port:              o.ServerPort,
-		UUID:              o.UUID,
-		Password:          o.Password,
-		Cipher:            firstNonEmpty(o.Method, o.Security),
-		Flow:              o.Flow,
+		Name:     firstNonEmpty(o.Tag, fmt.Sprintf("%s:%d", o.Server, o.ServerPort)),
+		Type:     normalizeSingBoxType(o.Type),
+		Server:   o.Server,
+		Port:     o.ServerPort,
+		UUID:     o.UUID,
+		Password: o.Password,
+		Cipher:   firstNonEmpty(o.Method, o.Security),
+		Flow:     o.Flow,
+		// socks / http / juicity 的帳號；sing-box 統一叫 username
+		User:              o.Username,
 		CongestionControl: o.CongestionControl,
 		UDPRelayMode:      o.UDPRelayMode,
 	}

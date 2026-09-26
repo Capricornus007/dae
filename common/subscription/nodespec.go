@@ -97,9 +97,11 @@ func (p *nodeSpec) toDaeLink() (string, error) {
 		return p.anytlsLink()
 	case "naive", "naiveproxy":
 		return p.naiveLink()
+	case "socks", "socks4", "socks4a", "socks5", "http", "https":
+		return p.plainProxyLink()
 	default:
-		// snell / hysteria(v1) / wireguard / shadow-tls / anytls / naiveproxy /
-		// brook / juicity / trusttunnel / socks：dae 沒有對應的 dialer
+		// snell / hysteria(v1) / wireguard / ssh / brook / trusttunnel：
+		// dae 的 outbound 沒註冊這些 dialer，翻不出來
 		return "", errUnsupportedProtocol
 	}
 }
@@ -353,6 +355,19 @@ func (p *nodeSpec) juicityLink() (string, error) {
 		q.Set("pinned_certchain_sha256", p.PinnedCert)
 	}
 	u := url.URL{Scheme: "juicity", User: url.UserPassword(p.User, p.Password), Host: p.hostPort(), RawQuery: q.Encode(), Fragment: p.remark()}
+	return u.String(), nil
+}
+
+// plainProxyLink 給 socks*/http/https 用：dae 的 outbound 有註冊這幾種
+// （mihomo 訂閱裡常見，多為上游鏈），之前被我一併誤列為「不支援」。
+func (p *nodeSpec) plainProxyLink() (string, error) {
+	u := &url.URL{Scheme: strings.ToLower(p.Type), Host: p.hostPort(), Fragment: p.remark()}
+	switch {
+	case p.User != "" && p.Password != "":
+		u.User = url.UserPassword(p.User, p.Password)
+	case p.Password != "":
+		u.User = url.User(p.Password)
+	}
 	return u.String(), nil
 }
 
