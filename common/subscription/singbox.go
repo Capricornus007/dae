@@ -191,12 +191,13 @@ func ResolveSubscriptionAsSingBox(log *logrus.Logger, b []byte) (nodes []string,
 }
 
 func (o *singBoxOutbound) toSpec() *nodeSpec {
-	// direct/block/dns/reject 不是「節點」，是路由骨架，丟掉且不計數；
+	// direct/block/dns/reject 與 selector/urltest（sing-box 的「群組」，等价於 mihomo
+	// 的 proxy-group）不是節點，是路由骨架，丟掉且不計數；
 	// hysteria v1、wireguard、socks/http 等 dae 的 outbound 沒註冊的類型，
 	// 交給 resolveNodeSpecs 按協定計數後跳過。ssr / anytls / naive / juicity
 	// 這四種 2026-09-26 起已能翻成 dae link，不再算跳過。
 	switch strings.ToLower(o.Type) {
-	case "", "direct", "block", "dns", "reject":
+	case "", "direct", "block", "dns", "reject", "selector", "urltest", "packet-tunnel":
 		return nil
 	}
 	s := &nodeSpec{

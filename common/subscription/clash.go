@@ -7,6 +7,7 @@ package subscription
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/sirupsen/logrus"
@@ -25,15 +26,15 @@ type clashSubscription struct {
 }
 
 type clashProxy struct {
-	Name     string `yaml:"name"`
-	Type     string `yaml:"type"`
-	Server   string `yaml:"server"`
-	Port     int    `yaml:"port"`
-	Password string `yaml:"password"`
-	UUID     string `yaml:"uuid"`
-	Cipher   string `yaml:"cipher"`
-	Method   string `yaml:"method"` // 有些配置把 ss 的加密寫成 method
-	UDP      *bool  `yaml:"udp"`
+	Name     string    `yaml:"name"`
+	Type     string    `yaml:"type"`
+	Server   string    `yaml:"server"`
+	Port     loosePort `yaml:"port"`
+	Password string    `yaml:"password"`
+	UUID     string    `yaml:"uuid"`
+	Cipher   string    `yaml:"cipher"`
+	Method   string    `yaml:"method"` // 有些配置把 ss 的加密寫成 method
+	UDP      *bool     `yaml:"udp"`
 
 	TLS         bool              `yaml:"tls"`
 	SNI         string            `yaml:"servername"`
@@ -71,6 +72,28 @@ type clashProxy struct {
 	PluginOpts        any    `yaml:"plugin-opts"` // 字串或映射，兩種都見過
 }
 
+// loosePort：現實裡的 Clash 訂閱會把 port 寫成字串（chromego 就是 `port: '80'`），
+// 宣告成 int 會讓整份 YAML 解析失敗、進而掉進 base64 那條亂吐垃圾。
+type loosePort int
+
+func (p *loosePort) UnmarshalYAML(node *yaml.Node) error {
+	var str string
+	if err := node.Decode(&str); err == nil {
+		n, e := strconv.Atoi(strings.TrimSpace(str))
+		if e != nil {
+			return fmt.Errorf("port %q 不是數字", str)
+		}
+		*p = loosePort(n)
+		return nil
+	}
+	var n int
+	if err := node.Decode(&n); err != nil {
+		return err
+	}
+	*p = loosePort(n)
+	return nil
+}
+
 // ResolveSubscriptionAsClash 把 Clash YAML 訂閱翻成 dae 的節點 URI 清單。
 // 內容不是 Clash（沒有可用的 proxies 段）時回 error，讓呼叫端續試下一種格式。
 func ResolveSubscriptionAsClash(log *logrus.Logger, b []byte) (nodes []string, err error) {
@@ -94,7 +117,7 @@ func (p *clashProxy) toSpec() *nodeSpec {
 		Name:              p.Name,
 		Type:              p.Type,
 		Server:            p.Server,
-		Port:              p.Port,
+		Port:              int(p.Port),
 		UUID:              p.UUID,
 		Password:          p.Password,
 		Cipher:            firstNonEmpty(p.Cipher, p.Method),

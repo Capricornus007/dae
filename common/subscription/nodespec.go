@@ -201,9 +201,14 @@ func (p *nodeSpec) vmessLink() (string, error) {
 	if p.UUID == "" {
 		return "", fmt.Errorf("vmess 節點缺少 uuid")
 	}
-	security := p.Cipher
-	if security == "" || strings.EqualFold(security, "none") {
-		security = "auto"
+	// dae 的 vmess JSON 裡 `type` 是**標題混淆類型**，只認 none / "" / http
+	// （dialer/v2ray/v2ray.go:206 那個 switch），不是加密方式。把客戶端訂閱裡的
+	// cipher（常見值 auto）直接塞進 type，會讓 link 被 dae 回
+	// "unexpected field: type: auto"（2026-09-26 拿 chromego 訂閱實測踩到）。
+	// 加密方式 dae 不讀——它只吃 AEAD。
+	headerType := ""
+	if strings.EqualFold(p.Cipher, "http") {
+		headerType = "http"
 	}
 	m := map[string]string{
 		"v":    "2",
@@ -212,7 +217,7 @@ func (p *nodeSpec) vmessLink() (string, error) {
 		"port": strconv.Itoa(p.Port),
 		"id":   p.UUID,
 		"aid":  "0",
-		"type": security,
+		"type": headerType,
 		"net":  p.normalizedNetwork(),
 		"host": p.Host,
 		"path": p.Path,

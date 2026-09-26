@@ -17,6 +17,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -43,6 +44,8 @@ type sip008Server struct {
 	PluginOpts string `json:"plugin_opts"`
 }
 
+var linkSchemeRE = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9+.\-]*$`)
+
 func ResolveSubscriptionAsBase64(log *logrus.Logger, b []byte) (nodes []string) {
 	log.Debugln("Try to resolve as base64")
 
@@ -61,6 +64,12 @@ func ResolveSubscriptionAsBase64(log *logrus.Logger, b []byte) (nodes []string) 
 		}
 		protocol, suffix, _ := strings.Cut(line, "://")
 		if len(protocol) == 0 || len(suffix) == 0 {
+			continue
+		}
+		// 只要求「有 :// 且兩邊非空」會把 JSON / YAML 裡的 `"url": "https://..."`
+		// 當成節點收進來（2026-09-26 拿 chromego 訂閱實測踩到：一份 sing-box 骨架
+		// 被翻成 34 個 `"address": "https` 之類的神秘節點）。scheme 必須是合法字元。
+		if !linkSchemeRE.MatchString(protocol) {
 			continue
 		}
 		nodes = append(nodes, line)
