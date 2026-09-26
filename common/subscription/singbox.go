@@ -8,6 +8,7 @@ package subscription
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -107,14 +108,67 @@ type singBoxOutbound struct {
 		ServiceName string            `json:"service_name"`
 	} `json:"transport"`
 
-	Obfs *struct {
-		Type     string `json:"type"`
-		Password string `json:"password"`
-	} `json:"obfs"`
+	Obfs json.RawMessage `json:"obfs"` // shadowsocks 是物件、shadowsocksr 是字串，同一個 key 兩種型別
 
-	Plugin *struct {
+	// shadowsocksr 專用
+	Protocol      string `json:"protocol"`
+	ProtocolParam string `json:"protocol_param"`
+	ObfsParam     string `json:"obfs_param"`
+
+	// anytls 可給一組密碼；naive / juicity 帶帳號
+	Passwords []string `json:"passwords"`
+	Username  string   `json:"username"`
+
+	// sing-box 的 plugin 在 shadowsocks 下是字串（"v2ray-plugin"），別處見過物件寫法；
+	// 同一個 key 兩種型別，宣告成具體型別會讓整份 JSON 解析失敗。
+	Plugin     json.RawMessage `json:"plugin"`
+	PluginOpts json.RawMessage `json:"plugin-opts"`
+}
+
+// singBoxPluginOptsToString 把 plugin-opts 物件轉成 dae 的 `k=v;k=v`。
+// sing-box 的 simple-obfs 用 mode 這個名字，dae 要的是 obfs，必須換掉——
+// 否則生成的 link 是 `plugin=obfs-local;`（obfs 值為空），dae 會回
+// "unsupported obfs  of plugin simple-obfs"（實測踩到）。
+func singBoxPluginOptsToString(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return ""
+	}
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		name := k
+		if k == "mode" {
+			name = "obfs"
+		}
+		parts = append(parts, name+"="+fmt.Sprint(m[k]))
+	}
+	return strings.Join(parts, ";")
+}
+
+// rawStringOrType 處理「字串或 {type:...} 物件」兩種寫法。
+func rawStringOrType(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return s
+	}
+	var o struct {
 		Type string `json:"type"`
-	} `json:"plugin"`
+	}
+	if err := json.Unmarshal(raw, &o); err == nil {
+		return o.Type
+	}
+	return ""
 }
 
 // ResolveSubscriptionAsSingBox 吃 sing-box 的 JSON 配置（NB4A 的匯出格式）。
@@ -138,8 +192,9 @@ func ResolveSubscriptionAsSingBox(log *logrus.Logger, b []byte) (nodes []string,
 
 func (o *singBoxOutbound) toSpec() *nodeSpec {
 	// direct/block/dns/reject 不是「節點」，是路由骨架，丟掉且不計數；
-	// 其餘沒有 dialer 的類型（hysteria v1、wireguard、shadow-tls、anytls、
-	// socks/http…）交給 resolveNodeSpecs 按協定計數後跳過。
+	// hysteria v1、wireguard、socks/http 等 dae 的 outbound 沒註冊的類型，
+	// 交給 resolveNodeSpecs 按協定計數後跳過。ssr / anytls / naive / juicity
+	// 這四種 2026-09-26 起已能翻成 dae link，不再算跳過。
 	switch strings.ToLower(o.Type) {
 	case "", "direct", "block", "dns", "reject":
 		return nil
@@ -179,13 +234,49 @@ func (o *singBoxOutbound) toSpec() *nodeSpec {
 		s.Service = o.Transport.ServiceName
 		s.Host = firstNonEmpty(jsonStringOrFirst(o.Transport.Host), o.Transport.Headers["Host"])
 	}
-	if o.Obfs != nil {
-		s.Obfs = o.Obfs.Type
-		s.ObfsPassword = o.Obfs.Password
+	if len(o.Obfs) > 0 {
+		// shadowsocks 的 obfs 是 {"type":..,"password":..}；shadowsocksr 的 obfs 是 "plain"/"http_simple" 字串
+		var obj struct {
+			Type     string `json:"type"`
+			Password string `json:"password"`
+		}
+		if err := json.Unmarshal(o.Obfs, &obj); err == nil {
+			s.Obfs = obj.Type
+			s.ObfsPassword = obj.Password
+		} else {
+			var str string
+			if err2 := json.Unmarshal(o.Obfs, &str); err2 == nil {
+				s.SsrObfs = str
+			}
+		}
 	}
-	if o.Plugin != nil {
-		s.Plugin = o.Plugin.Type
+	switch strings.ToLower(o.Type) {
+	case "shadowsocksr", "ssr":
+		s.Proto = firstNonEmpty(o.Protocol, "origin")
+		s.ProtoParam = o.ProtocolParam
+		s.ObfsParam = o.ObfsParam
+		if s.SsrObfs == "" {
+			s.SsrObfs = "plain"
+		}
+	case "anytls":
+		if s.Password == "" && len(o.Passwords) > 0 {
+			s.Password = o.Passwords[0]
+		}
+		// anytls 的 obfs 是 reality 之外的第二層混淆，放在 tls 段裡；dae 的 anytls link 不吃它
+		s.Obfs, s.ObfsPassword = "", ""
+	case "naive":
+		// sing-box 的 naive 用 protocol 欄位選 http3 / https，對應 dae 的 naive+quic / naive+https
+		s.NaiveScheme = "naive+https"
+		if strings.EqualFold(o.Protocol, "http3") || strings.EqualFold(o.Protocol, "quic") {
+			s.NaiveScheme = "naive+quic"
+		}
+		s.User = firstNonEmpty(o.Username, o.UUID)
+	case "juicity":
+		// dae 把 link 的 username 位置當 UUID，sing-box 兩邊欄位名都見過
+		s.User = firstNonEmpty(o.Username, o.UUID)
 	}
+	s.Plugin = rawStringOrType(o.Plugin)
+	s.PluginOpts = singBoxPluginOptsToString(o.PluginOpts)
 	return s
 }
 

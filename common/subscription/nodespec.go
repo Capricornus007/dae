@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -340,6 +341,10 @@ func (p *nodeSpec) juicityLink() (string, error) {
 	if p.Password == "" {
 		return "", fmt.Errorf("juicity 節點缺少密碼")
 	}
+	// dae 把 link 的 username 位置當 UUID 用，沒有合法 UUID 就建不起 dialer
+	if !uuidRE.MatchString(p.User) {
+		return "", errUnsupportedProtocol
+	}
 	q := p.query()
 	if p.CongestionControl != "" {
 		q.Set("congestion_control", p.CongestionControl)
@@ -347,11 +352,7 @@ func (p *nodeSpec) juicityLink() (string, error) {
 	if p.PinnedCert != "" {
 		q.Set("pinned_certchain_sha256", p.PinnedCert)
 	}
-	user := url.User(p.Password)
-	if p.User != "" {
-		user = url.UserPassword(p.User, p.Password)
-	}
-	u := url.URL{Scheme: "juicity", User: user, Host: p.hostPort(), RawQuery: q.Encode(), Fragment: p.remark()}
+	u := url.URL{Scheme: "juicity", User: url.UserPassword(p.User, p.Password), Host: p.hostPort(), RawQuery: q.Encode(), Fragment: p.remark()}
 	return u.String(), nil
 }
 
@@ -364,19 +365,24 @@ func (p *nodeSpec) anytlsLink() (string, error) {
 	return u.String(), nil
 }
 
-// naiveLink：dae 的 naive dialer 只認 `naive+https://` 與 `naive+quic://` 兩種 scheme。
+// naiveLink：dae 的 naive dialer 註冊了兩種 scheme，但 `naive+quic` 在
+// dialer/naive/naive.go 的 toDialer 裡明確回 "naive+quic is not supported yet"
+// （連測試都斷言這句話）→ 寧可跳過並計數，也不吐一條建不起來的 link。
 func (p *nodeSpec) naiveLink() (string, error) {
-	scheme := p.NaiveScheme
-	if scheme != "naive+quic" {
-		scheme = "naive+https"
+	if p.NaiveScheme == "naive+quic" {
+		return "", errUnsupportedProtocol
 	}
 	user := url.User(p.Password)
 	if p.User != "" {
 		user = url.UserPassword(p.User, p.Password)
 	}
-	u := url.URL{Scheme: scheme, User: user, Host: p.hostPort(), Fragment: p.remark()}
+	u := url.URL{Scheme: "naive+https", User: user, Host: p.hostPort(), Fragment: p.remark()}
 	return u.String(), nil
 }
+
+// uuidRE：juicity 把 username 位置當 UUID 解析（ParseJuicityURL 不檢查，
+// 下游 toDialer 才丟 "parse UUID: invalid UUID length: N"），所以生成端就得擋。
+var uuidRE = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
 func (p *nodeSpec) normalizedNetwork() string {
 	switch strings.ToLower(p.Network) {

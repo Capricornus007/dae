@@ -37,6 +37,7 @@ type clashProxy struct {
 
 	TLS         bool              `yaml:"tls"`
 	SNI         string            `yaml:"servername"`
+	Sni         string            `yaml:"sni"` // anytls / juicity 用這個欄位名
 	SkipVerify  bool              `yaml:"skip-cert-verify"`
 	ALPN        []string          `yaml:"alpn"`
 	Fingerprint string            `yaml:"client-fingerprint"`
@@ -51,8 +52,17 @@ type clashProxy struct {
 		PublicKey string `yaml:"public-key"`
 		ShortID   string `yaml:"short-id"`
 	} `yaml:"reality-opts"`
-	Obfs              string `yaml:"obfs"`
-	ObfsPassword      string `yaml:"obfs-password"`
+	Obfs         string `yaml:"obfs"`
+	ObfsPassword string `yaml:"obfs-password"`
+	// shadowsocksr 專用（mihomo 的欄位名是 protocol / protocolparam / obfsparam）
+	Protocol      string `yaml:"protocol"`
+	ProtocolParam string `yaml:"protocolparam"`
+	ObfsParam     string `yaml:"obfsparam"`
+	// juicity / naive 的帳號與憑證綁定
+	Username   string `yaml:"username"`
+	PinnedCert string `yaml:"pinned-certchain-sha256"`
+	// juicity 用這個欄位名，不是 skip-cert-verify
+	AllowInsecure     bool   `yaml:"allow-insecure"`
 	Up                string `yaml:"up"`
 	Down              string `yaml:"down"`
 	CongestionControl string `yaml:"congestion-controller"`
@@ -80,7 +90,7 @@ func ResolveSubscriptionAsClash(log *logrus.Logger, b []byte) (nodes []string, e
 }
 
 func (p *clashProxy) toSpec() *nodeSpec {
-	return &nodeSpec{
+	s := &nodeSpec{
 		Name:              p.Name,
 		Type:              p.Type,
 		Server:            p.Server,
@@ -90,8 +100,8 @@ func (p *clashProxy) toSpec() *nodeSpec {
 		Cipher:            firstNonEmpty(p.Cipher, p.Method),
 		UDP:               p.UDP,
 		TLS:               p.TLS,
-		SNI:               p.SNI,
-		SkipVerify:        p.SkipVerify,
+		SNI:               firstNonEmpty(p.SNI, p.Sni),
+		SkipVerify:        p.SkipVerify || p.AllowInsecure,
 		ALPN:              p.ALPN,
 		Fingerprint:       p.Fingerprint,
 		Network:           p.Network,
@@ -109,7 +119,21 @@ func (p *clashProxy) toSpec() *nodeSpec {
 		UDPRelayMode:      p.UDPRelayMode,
 		Plugin:            p.Plugin,
 		PluginOpts:        clashPluginOptsToString(p.PluginOpts),
+		User:              p.Username,
+		PinnedCert:        p.PinnedCert,
 	}
+	// ssr 的 obfs / protocol 是它自己的語意，跟 ss 的 obfs 欄位同名但不同物
+	switch strings.ToLower(p.Type) {
+	case "ssr", "shadowsocksr":
+		s.Proto = firstNonEmpty(p.Protocol, "origin")
+		s.ProtoParam = p.ProtocolParam
+		s.SsrObfs = firstNonEmpty(p.Obfs, "plain")
+		s.ObfsParam = p.ObfsParam
+		s.Obfs, s.ObfsPassword = "", ""
+	case "naive", "naiveproxy":
+		s.NaiveScheme = "naive+https"
+	}
+	return s
 }
 
 // wsHost 取 ws 的 Host 標頭：Clash 可能寫在 host，也可能藏在 ws-headers 裡。
