@@ -4135,6 +4135,8 @@ static __always_inline int get_pid_pname(struct pid_pname *pid_pname)
 
 	for (u32 i = 0; i < TASK_COMM_LEN; i++) {
 		u32 idx = offset + i;
+		char c;
+
 		/* barrier_var 要放在邊界檢查「之前」：它把 idx 走一次暫存器，編譯器就不能把
 		 * 比較折疊掉或挪到讀取之後，驗證器因此能在 arg_buf[idx] 那裡知道 idx 已於
 		 * [0,MAX_ARG_LEN) 內。放比較之後反而會作廢已推導出的範圍（實測兩種位置，
@@ -4146,7 +4148,7 @@ static __always_inline int get_pid_pname(struct pid_pname *pid_pname)
 			pid_pname->pname[i] = '\0';
 			break;
 		}
-		char c = arg_buf[idx];
+		c = arg_buf[idx];
 		pid_pname->pname[i] = c;
 		if (c == '\0')
 			break;
