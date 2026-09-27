@@ -86,7 +86,7 @@ func TestVariantsDiffer(t *testing.T) {
 
 func TestChineseVariant(t *testing.T) {
 	for lang, want := range map[string]string{
-		"tc": "tc", "sc": "sc", "TC": "tc", "SC": "sc", " sc ": "sc",
+		"tc": "tc", "sc": "sc", "TC": "tc", "SC": "sc",
 		"zh": "tc", "zh-TW": "tc", "zh-HK": "tc", "zh_hant": "tc",
 		"zh-CN": "sc", "zh-Hans": "sc", "zh_hans_cn": "sc", "zh-SG": "sc",
 		"en": "", "": "", "sg": "", "ja": "",
@@ -94,6 +94,11 @@ func TestChineseVariant(t *testing.T) {
 		if got := chineseVariant(lang); got != want {
 			t.Errorf("chineseVariant(%q) = %q，應為 %q", lang, got, want)
 		}
+	}
+	// 設定值可能被人手動打的時候帶了空白，也要能吃（放變數而不是 map 鍵，
+	// 否則 gocritic 的 mapKey 會報「鍵裡有可疑空白」）。
+	if got := chineseVariant(" sc "); got != "sc" {
+		t.Errorf("帶前後空白的值沒被 trim：chineseVariant(\" sc \") = %q", got)
 	}
 }
 
