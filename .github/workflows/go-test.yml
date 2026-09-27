@@ -18,12 +18,12 @@ on:
     branches:
       - main
       - kdae
-    paths:
-      - "**/*.go"
-      - "go.mod"
-      - "go.sum"
-      - ".github/workflows/go-test.yml"
-      - "Makefile"
+    # No path filter here, unlike pull_request: `Publish Nightly`'s preflight
+    # requires a green "Go Unit Test" / "Go Race Detector" / "Go Vet" check-run on
+    # the exact commit it publishes, and a filtered-out push leaves those gates
+    # 'absent', which preflight cannot tell apart from 'not run yet'. Same reason
+    # as bpf-test.yml: a commit that only touches docs or workflows could never be
+    # published.
 
 # Only checkout/setup-go/cache run here, so ask for exactly that. The old
 # `read-all` bought nothing and, worse, exceeded the ceiling of the caller
