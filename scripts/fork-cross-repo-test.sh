@@ -150,11 +150,17 @@ fi
 # Report paths so Producer can attach to docs/sprint-N/progress.md.
 if [[ $failures -gt 0 ]]; then
   echo "fork-cross-repo-test: ${failures}/${repo_count} fork repo(s) reported test failures." >&2
-  echo "  advisory mode (default): Producer reviews failures above; fork bugs are" >&2
-  echo "  tracked as OQs and fixed upstream, not in dae. Use --strict to fail builds." >&2
   if [[ "$strict" -eq 1 ]]; then
+    # 這段訊息原本不分模式都印「advisory mode … Use --strict to fail builds」，
+    # 於是 --strict 下明明要 exit 1，日誌卻叫讀者「用 --strict 才會擋」——讀日誌的人
+    # （實測：我）會因此去找別的步驟背鍋，白繞兩輪。改成按模式各說各話。
+    echo "  strict mode: failing the build on these fork failures." >&2
+    echo "  Fork bugs are normally fixed upstream, not in dae; rerun without --strict" >&2
+    echo "  (advisory) only if this is a tracked OQ." >&2
     exit 1
   fi
+  echo "  advisory mode (default): Producer reviews failures above; fork bugs are" >&2
+  echo "  tracked as OQs and fixed upstream, not in dae. Use --strict to fail builds." >&2
   exit 0
 fi
 passed=$((repo_count - skipped))
