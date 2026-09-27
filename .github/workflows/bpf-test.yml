@@ -24,18 +24,11 @@ on:
     branches:
       - main
       - kdae
-    paths:
-      - "**/*.c"
-      - "**/*.h"
-      - "control/**/*.go"
-      - "pkg/ebpf_internal/**"
-      - "trace/**"
-      - "scripts/ebpf-audit.sh"
-      - "scripts/check-trace-arch-matrix.sh"
-      - "Makefile"
-      - "go.mod"
-      - "go.sum"
-      - ".github/workflows/bpf-test.yml"
+    # No path filter here, unlike pull_request. `Publish Nightly` gates on a
+    # check-run named "BPF Unit Test" existing and being green on the exact
+    # commit it is about to publish; a filtered-out push leaves that gate
+    # 'absent', which preflight cannot distinguish from 'not run yet', so any
+    # commit that happened to miss these paths could never be published.
 
 # Only checkout/setup-go/cache run here, so ask for exactly that. The old
 # `read-all` bought nothing and, worse, exceeded the ceiling of the caller
