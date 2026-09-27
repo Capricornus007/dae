@@ -103,11 +103,16 @@ func TestTranslateErr(t *testing.T) {
 		t.Error("常見錯誤沒被翻譯")
 	}
 	got := translateErr(cat, `Head "https://www.youtube.com/generate_204": EOF`)
-	if !strings.HasPrefix(got, "對 HEAD 請求沒回應：") {
+	if !strings.HasPrefix(got, "對 HEAD 請求沒回應 \"") {
 		t.Errorf("Head 型錯誤應走前綴翻譯，實際: %q", got)
 	}
 	if !strings.Contains(got, "youtube.com") {
 		t.Errorf("翻譯後要把靶子留著，實際: %q", got)
+	}
+	// 引號要成對：前綴吃掉 `Head "` 之後，替換值得把開引號補回來，
+	// 否則會印成「…：http://x": EOF」這種半個引號的樣子。
+	if !strings.Contains(got, "\"https://www.youtube.com") {
+		t.Errorf("開引號沒補回來: %q", got)
 	}
 	// 兜底句也分繁簡，不能兩邊冒出同一種字形。
 	if h := translateErr(catalogs["tc"], "read tcp: EOF"); !strings.Contains(h, "對端") {

@@ -124,8 +124,8 @@ var errsTc = map[string]string{
 // 前綴型錯誤（`Head "https://…": EOF`、`dial tcp 1.2.3.4:443: …`）：
 // 把「做了什麼」留著、只換掉後面的原因，免得連是哪个靶子掛了都看不出來。
 var errPrefixesTc = map[string]string{
-	"Head \"":  "對 HEAD 請求沒回應：",
-	"Get \"":   "對 GET 請求沒回應：",
+	"Head \"":  "對 HEAD 請求沒回應 \"",
+	"Get \"":   "對 GET 請求沒回應 \"",
 	"dial tcp": "撥號失敗 ",
 	"dial udp": "UDP 撥號失敗 ",
 }

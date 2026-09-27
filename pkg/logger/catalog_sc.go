@@ -112,8 +112,8 @@ var errsSc = map[string]string{
 }
 
 var errPrefixesSc = map[string]string{
-	"Head \"":  "对 HEAD 请求没回应：",
-	"Get \"":   "对 GET 请求没回应：",
+	"Head \"":  "对 HEAD 请求没回应 \"",
+	"Get \"":   "对 GET 请求没回应 \"",
 	"dial tcp": "拨号失败 ",
 	"dial udp": "UDP 拨号失败 ",
 }
