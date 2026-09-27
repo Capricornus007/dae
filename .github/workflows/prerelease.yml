@@ -64,6 +64,10 @@ jobs:
           # name). Every distinct name matching a gate must be green, so one
           # failed matrix leg fails the preflight.
           # "Lint" is the workflow name; its jobs are go-lint/ebpf-lint.
+          # Match the check-run name, which is the job's `name:` when it has one:
+          # lint.yml's job key is `build-env` but it declares
+          # `name: Build env single owner`, so asking for "build-env" here could
+          # never match and Publish Nightly was unpublishable since it was added.
           for gate in \
             "name:Go Unit Test" \
             "name:Go Race Detector" \
@@ -71,7 +75,7 @@ jobs:
             "prefix:BPF Unit Test" \
             "name:go-lint" \
             "name:ebpf-lint" \
-            "name:build-env"; do
+            "name:Build env single owner"; do
             mode="${gate%%:*}"
             pattern="${gate#*:}"
             conclusion="$(jq -r --arg n "$pattern" --arg m "$mode" '
