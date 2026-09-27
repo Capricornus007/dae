@@ -120,6 +120,9 @@ func (w *reloadWorker) run() {
 		// level to every component that already captured the pointer, which a
 		// fresh logger silently left on the old one.
 		oldLogOutput := w.log.Out
+		// 語言也要跟著新配置走：這樣改 log_language 只要 reload 就生效，
+		// 不必 restart（restart 會把既有連線全部斷掉，看影片的人會明顯感覺到）。
+		logger.SetLanguage(newConf.Global.LogLanguage)
 		logger.SetLogger(w.log, newConf.Global.LogLevel, disableTimestamp, nil)
 		logger.SetLogger(logrus.StandardLogger(), newConf.Global.LogLevel, disableTimestamp, nil)
 		logrus.SetOutput(oldLogOutput)
