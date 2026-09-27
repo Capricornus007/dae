@@ -8,7 +8,7 @@ import (
 )
 
 func TestTranslateMessage(t *testing.T) {
-	cat := catalogs["hant"]
+	cat := catalogs["tc"]
 	if got := translateMessage(cat, "Connectivity Check Failed"); got == "Connectivity Check Failed" {
 		t.Error("靜態訊息沒被翻譯")
 	}
@@ -39,7 +39,7 @@ func TestTranslateMessage(t *testing.T) {
 // 兩份表的鍵必須完全一致：差一個鍵的症狀是「繁體翻得出來、簡體留英文」，
 // 光看日誌很難發現，所以在源頭鎖住。
 func TestCatalogsAreInSync(t *testing.T) {
-	hant, hans := catalogs["hant"], catalogs["hans"]
+	hant, hans := catalogs["tc"], catalogs["sc"]
 	pairs := map[string][2]map[string]string{
 		"exact":     {hant.exact, hans.exact},
 		"prefix":    {hant.prefix, hans.prefix},
@@ -68,8 +68,8 @@ func TestCatalogsAreInSync(t *testing.T) {
 
 // 簡繁要真的差在字形**與**術語，否則其中一份只是抄來的。
 func TestVariantsDiffer(t *testing.T) {
-	hant := translateMessage(catalogs["hant"], "Connectivity Check Failed")
-	hans := translateMessage(catalogs["hans"], "Connectivity Check Failed")
+	hant := translateMessage(catalogs["tc"], "Connectivity Check Failed")
+	hans := translateMessage(catalogs["sc"], "Connectivity Check Failed")
 	if hant == hans {
 		t.Fatalf("繁簡翻出同一句：%q", hant)
 	}
@@ -77,27 +77,28 @@ func TestVariantsDiffer(t *testing.T) {
 		t.Errorf("字形沒對上：繁 %q／簡 %q", hant, hans)
 	}
 	// 同一個英文字在兩地的习惯叫法不同（cache → 快取／缓存）。
-	h2 := translateMessage(catalogs["hant"], "[StickyIP] Cache entry expired")
-	s2 := translateMessage(catalogs["hans"], "[StickyIP] Cache entry expired")
+	h2 := translateMessage(catalogs["tc"], "[StickyIP] Cache entry expired")
+	s2 := translateMessage(catalogs["sc"], "[StickyIP] Cache entry expired")
 	if !strings.Contains(h2, "快取") || !strings.Contains(s2, "缓存") {
 		t.Errorf("術語沒對上：繁 %q／簡 %q", h2, s2)
 	}
 }
 
-func TestZhVariant(t *testing.T) {
+func TestChineseVariant(t *testing.T) {
 	for lang, want := range map[string]string{
-		"zh": "hant", "zh-TW": "hant", "zh-HK": "hant", "zh_hant": "hant",
-		"zh-CN": "hans", "zh-Hans": "hans", "zh_hans_cn": "hans",
-		"en": "", "": "", "sg": "",
+		"tc": "tc", "sc": "sc", "TC": "tc", "SC": "sc", " sc ": "sc",
+		"zh": "tc", "zh-TW": "tc", "zh-HK": "tc", "zh_hant": "tc",
+		"zh-CN": "sc", "zh-Hans": "sc", "zh_hans_cn": "sc", "zh-SG": "sc",
+		"en": "", "": "", "sg": "", "ja": "",
 	} {
-		if got := zhVariant(lang); got != want {
-			t.Errorf("zhVariant(%q) = %q，應為 %q", lang, got, want)
+		if got := chineseVariant(lang); got != want {
+			t.Errorf("chineseVariant(%q) = %q，應為 %q", lang, got, want)
 		}
 	}
 }
 
 func TestTranslateErr(t *testing.T) {
-	cat := catalogs["hant"]
+	cat := catalogs["tc"]
 	if got := translateErr(cat, "no applicable IP for this network type"); got == "no applicable IP for this network type" {
 		t.Error("常見錯誤沒被翻譯")
 	}
@@ -109,10 +110,10 @@ func TestTranslateErr(t *testing.T) {
 		t.Errorf("翻譯後要把靶子留著，實際: %q", got)
 	}
 	// 兜底句也分繁簡，不能兩邊冒出同一種字形。
-	if h := translateErr(catalogs["hant"], "read tcp: EOF"); !strings.Contains(h, "對端") {
+	if h := translateErr(catalogs["tc"], "read tcp: EOF"); !strings.Contains(h, "對端") {
 		t.Errorf("繁體兜底句冒出簡體: %q", h)
 	}
-	if h := translateErr(catalogs["hans"], "read tcp: EOF"); !strings.Contains(h, "对端") {
+	if h := translateErr(catalogs["sc"], "read tcp: EOF"); !strings.Contains(h, "对端") {
 		t.Errorf("簡體兜底句冒出繁體: %q", h)
 	}
 	if got := translateErr(cat, "some random Go error"); got != "some random Go error" {
@@ -134,7 +135,7 @@ func TestDefaultLanguageIsPassthrough(t *testing.T) {
 		t.Errorf("英文模式下內容被改寫: %q / %v", e.Message, e.Data["err"])
 	}
 
-	SetLanguage("zh-hans")
+	SetLanguage("sc")
 	if err := (i18nHook{}).Fire(e); err != nil {
 		t.Fatal(err)
 	}

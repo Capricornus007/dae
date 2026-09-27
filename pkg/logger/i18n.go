@@ -23,19 +23,20 @@ type zhCatalog struct {
 }
 
 var catalogs = map[string]zhCatalog{
-	"hant": {messagesHant, messagePrefixesHant, errsHant, errPrefixesHant, "對端沒回資料就把線關了（%s）"},
-	"hans": {messagesHans, messagePrefixesHans, errsHans, errPrefixesHans, "对端没回数据就把线关了（%s）"},
+	"tc": {messagesTc, messagePrefixesTc, errsTc, errPrefixesTc, "對端沒回資料就把線關了（%s）"},
+	"sc": {messagesSc, messagePrefixesSc, errsSc, errPrefixesSc, "对端没回数据就把线关了（%s）"},
 }
 
-// zhVariant 決定設定值要用哪一份表。
-// 只寫 `zh` 時給繁體：這臺機器的設定就是 `zh`，改預設等於動到現況。
-func zhVariant(lang string) string {
+// chineseVariant 決定設定值要用哪一份表。主用的值是 `tc`／`sc`（短、好打），
+// 同時仍認 BCP-47 那套寫法，免得別人照慣例填 zh-CN 結果沒反應。
+// `zh` 這種沒分繁簡的寫法給繁體——這臺機器的設定就是它，改預設等於動到現況。
+func chineseVariant(lang string) string {
 	lang = strings.ReplaceAll(strings.ToLower(strings.TrimSpace(lang)), "_", "-")
 	switch lang {
-	case "zh-cn", "zh-sg", "zh-hans", "zh-hans-cn", "zh-hans-sg", "hans", "cn":
-		return "hans"
-	case "zh", "zh-tw", "zh-hk", "zh-mo", "zh-hant", "zh-hant-tw", "zh-hant-hk", "hant", "tw", "hk":
-		return "hant"
+	case "sc", "zh-cn", "zh-sg", "zh-hans", "zh-hans-cn", "zh-hans-sg", "cn":
+		return "sc"
+	case "tc", "zh", "zh-tw", "zh-hk", "zh-mo", "zh-hant", "zh-hant-tw", "zh-hant-hk", "tw", "hk":
+		return "tc"
 	}
 	return ""
 }
@@ -65,7 +66,7 @@ type i18nHook struct{}
 // Fire 只改 Message 與 err 欄位的值，欄位名保持英文：
 // 要 grep 日誌的人（還有 CI 的比對）不能被迫記第二套鍵名。
 func (i18nHook) Fire(e *logrus.Entry) error {
-	cat, ok := catalogs[zhVariant(Language())]
+	cat, ok := catalogs[chineseVariant(Language())]
 	if !ok {
 		return nil
 	}

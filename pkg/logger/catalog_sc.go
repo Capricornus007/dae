@@ -1,11 +1,11 @@
 package logger
 
-// 中文（简体）对照表。键与 catalog_zh.go 的繁体那份**必须完全一致**，
+// 中文（简体，sc）对照表。键与 catalog_tc.go 的繁体那份**必须完全一致**，
 // 由 TestCatalogsAreInSync 守住：差一个键就会出现「繁体翻得出、简体留英文」这种诡异现象。
 // 用词不是繁转简就完事：缓存／地址／证书／端口／网络／数据路径／程序 这些是大陆习惯说法，
 // 所以先生成字形、再整批覆盖术语。要加讯息时**两份都要加**，漏一份测试就会红。
 
-var messagesHans = map[string]string{
+var messagesSc = map[string]string{
 	"Connectivity Check Failed":        "节点健康检查没过",
 	"Connectivity Check":               "节点健康检查",
 	"Skip check due to no DNS record.": "这个节点目前没有可用的解析结果，这次检查先跳过",
@@ -28,7 +28,7 @@ var messagesHans = map[string]string{
 	"start process successfully":       "启动完成",
 }
 
-var messagePrefixesHans = map[string]string{
+var messagePrefixesSc = map[string]string{
 	"[StickyIP] Check cycle incremented":                                         "固定出口 IP：检查周期递进 ",
 	"[StickyIP] No cache entry found":                                            "固定出口 IP：没有缓存可查（第一次连这个地址） ",
 	"[StickyIP] DialContext called":                                              "固定出口 IP：要连线了 ",
@@ -95,7 +95,7 @@ var messagePrefixesHans = map[string]string{
 	"[Reload]":                                                      "〔重载〕",
 }
 
-var errsHans = map[string]string{
+var errsSc = map[string]string{
 	"no applicable IP for this network type": "这个网络类型（v4／v6）没有可用地址",
 	"network is unreachable":                 "没有路由可以到这个网络（通常是 v6 没起来）",
 	"connection refused":                     "对方直接拒绝连线",
@@ -111,7 +111,7 @@ var errsHans = map[string]string{
 	"address already in use":                 "端口已被占用",
 }
 
-var errPrefixesHans = map[string]string{
+var errPrefixesSc = map[string]string{
 	"Head \"":  "对 HEAD 请求没回应：",
 	"Get \"":   "对 GET 请求没回应：",
 	"dial tcp": "拨号失败 ",
