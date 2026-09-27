@@ -35,8 +35,27 @@ jobs:
   nightly:
     needs: [changes]
     if: needs.changes.outputs.changed == 'true'
+    # The caller's permissions are the ceiling for the whole called tree, and
+    # GitHub refuses to start the run when a called job asks for more. Upstream
+    # only ever needs `contents`, but this fork gave go-test/bpf-test
+    # `permissions: read-all` and gave prerelease's preflight `checks: read`
+    # (it polls check-runs to gate the release), so the ceiling has to list
+    # those scopes too or `Publish Nightly` dies with startup_failure / 0 jobs.
     permissions:
       contents: write
+      actions: read
+      attestations: read
+      checks: read
+      deployments: read
+      discussions: read
+      issues: read
+      models: read
+      packages: read
+      pages: read
+      pull-requests: read
+      repository-projects: read
+      security-events: read
+      statuses: read
     uses: ./.github/workflows/prerelease.yml
     with:
       ref: ${{ needs.changes.outputs.sha }}
