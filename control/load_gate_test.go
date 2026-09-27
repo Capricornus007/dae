@@ -1,4 +1,4 @@
-//go:build !dae_stub_ebpf && (amd64 || arm64)
+//go:build dae_load_gate && (amd64 || arm64)
 
 package control
 
@@ -23,9 +23,12 @@ import (
 // 跑法（要 root 與一個 bpffs 目錄；不建 netkit、不掛介面，所以不影響現行網路）：
 //
 //	sudo mkdir -p /sys/fs/bpf/dae-load-gate && sudo mount -t bpf bpf /sys/fs/bpf/dae-load-gate
-//	sudo DAE_LOAD_GATE=1 go test -tags '' -run TestLoadGate ./control/
+//	sudo DAE_LOAD_GATE=1 go test -tags dae_load_gate -run TestLoadGate ./control/
 //
-// 沒設 DAE_LOAD_GATE=1 時整個測試 Skip，所以不會影響一般 `go test ./...`。
+// 用**獨立的 build tag** 而不是普通的 `!dae_stub_ebpf`：bpf-test.yml 有一道守門，
+// 要求每個 `!dae_stub_ebpf` 的測試都要進它的 `-test.run` 白名單，而白名單又會
+// 把「Skip」判成失敗（沒報 `--- PASS` 就算紅）。這道閘門本來就要 root＋bpffs、不該在
+// 一般 `go test ./...` 裡跑，所以用 tag 把它整個移出常規編譯，誰要當閘門誰主動加 tag。
 func TestLoadGate(t *testing.T) {
 	if os.Getenv("DAE_LOAD_GATE") != "1" {
 		t.Skip("set DAE_LOAD_GATE=1 and run as root to load the datapath into the kernel")
