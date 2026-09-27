@@ -261,6 +261,7 @@ var (
 				}
 			}
 			log := logrus.New()
+			logger.SetLanguage(conf.Global.LogLanguage)
 			logger.SetLogger(log, conf.Global.LogLevel, disableTimestamp, logOpts)
 			logger.SetLogger(logrus.StandardLogger(), conf.Global.LogLevel, disableTimestamp, logOpts)
 

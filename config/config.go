@@ -22,6 +22,9 @@ type Global struct {
 	SoMarkFromDae     uint32 `mapstructure:"so_mark_from_dae"`
 	SoMarkFromDaeSet  bool   `mapstructure:"so_mark_from_dae_set"`
 	LogLevel          string `mapstructure:"log_level" default:"info"`
+	// 日誌語言。預設 en＝完全不改寫；設成 zh 時由 pkg/logger 的對照表在「出口」翻譯，
+	// 呼叫點仍寫英文，這樣跟上游合併不會衝突，認不得的訊息也照樣留英文不丟證據。
+	LogLanguage string `mapstructure:"log_language" default:"en"`
 	// We use DirectTcpCheckUrl to check (tcp)*(ipv4/ipv6) connectivity for direct.
 	// DirectTcpCheckUrl string `mapstructure:"direct_tcp_check_url" default:"http://www.qualcomm.cn/generate_204"`
 	TcpCheckUrl        []string      `mapstructure:"tcp_check_url" default:"http://cp.cloudflare.com,1.1.1.1,2606:4700:4700::1111"`
