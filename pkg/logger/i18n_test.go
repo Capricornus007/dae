@@ -22,6 +22,16 @@ func TestTranslateMessage(t *testing.T) {
 	if a == b {
 		t.Errorf("兩條不同的訊息被翻成同一句: %q", a)
 	}
+	// 回歸測試：outbound 模組的訊息原字串帶方括號，顯示時才被 formatter 拆成前綴。
+	// 用顯示形態（`StickyIP: …`）建表會永遠命中不了——這次就踩過。
+	if got := translateMessage("[StickyIP] Check cycle incremented new_cycle=3 old_cycle=2"); strings.HasPrefix(got, "固定出口IP") {
+		t.Logf("方括號型訊息正確命中: %q", got)
+	} else {
+		t.Errorf("方括號型訊息沒被翻譯: %q", got)
+	}
+	if got := translateMessage("Connectivity Check"); got == "Connectivity Check" {
+		t.Error("健康檢查訊息沒被翻譯")
+	}
 	if got := translateMessage("totally unknown message from upstream"); got != "totally unknown message from upstream" {
 		t.Errorf("不認識的訊息必須原樣留著，實際: %q", got)
 	}
