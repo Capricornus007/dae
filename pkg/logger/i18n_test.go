@@ -8,47 +8,114 @@ import (
 )
 
 func TestTranslateMessage(t *testing.T) {
-	if got := translateMessage("Connectivity Check Failed"); got == "Connectivity Check Failed" {
+	cat := catalogs["hant"]
+	if got := translateMessage(cat, "Connectivity Check Failed"); got == "Connectivity Check Failed" {
 		t.Error("靜態訊息沒被翻譯")
 	}
 	// 前綴命中要保留動態尾巴，否則「哪條節點掛了」這種證據就沒了。
-	msg := "StickyIP: No cache entry found proxy_addr=cfyes.example:443"
-	if got := translateMessage(msg); !strings.HasSuffix(got, "proxy_addr=cfyes.example:443") {
+	msg := "[StickyIP] No cache entry found proxy_addr=cfyes.example:443"
+	if got := translateMessage(cat, msg); !strings.HasSuffix(got, "proxy_addr=cfyes.example:443") {
 		t.Errorf("動態尾巴被吃掉或沒翻: %q", got)
 	}
 	// 最長前綴優先：這兩條共享前綴，不能翻成同一句。
-	a := translateMessage("StickyIP: Cache hit - returning cached IP x")
-	b := translateMessage("StickyIP: Cache hit - using cached proxy IP x")
+	a := translateMessage(cat, "[StickyIP] Cache hit - returning cached IP x")
+	b := translateMessage(cat, "[StickyIP] Cache hit - using cached proxy IP x")
 	if a == b {
 		t.Errorf("兩條不同的訊息被翻成同一句: %q", a)
 	}
-	// 回歸測試：outbound 模組的訊息原字串帶方括號，顯示時才被 formatter 拆成前綴。
-	// 用顯示形態（`StickyIP: …`）建表會永遠命中不了——這次就踩過。
-	if got := translateMessage("[StickyIP] Check cycle incremented new_cycle=3 old_cycle=2"); strings.HasPrefix(got, "固定出口IP") {
-		t.Logf("方括號型訊息正確命中: %q", got)
-	} else {
+	// 回歸測試：outbound 那批訊息的**原字串帶方括號**，顯示時才被 formatter 拆成前綴。
+	// 用顯示形態（`StickyIP: …`）建表會永遠命中不了——這個坑踩過。
+	if got := translateMessage(cat, "[StickyIP] Check cycle incremented new_cycle=3 old_cycle=2"); !strings.HasPrefix(got, "固定出口") {
 		t.Errorf("方括號型訊息沒被翻譯: %q", got)
 	}
-	if got := translateMessage("Connectivity Check"); got == "Connectivity Check" {
-		t.Error("健康檢查訊息沒被翻譯")
+	if got := translateMessage(cat, "Connectivity Check"); got == "Connectivity Check" {
+		t.Error("健康檢查訊息沒被翻譯（它的數字是欄位，所以該走精確鍵）")
 	}
-	if got := translateMessage("totally unknown message from upstream"); got != "totally unknown message from upstream" {
+	if got := translateMessage(cat, "totally unknown message from upstream"); got != "totally unknown message from upstream" {
 		t.Errorf("不認識的訊息必須原樣留著，實際: %q", got)
 	}
 }
 
+// 兩份表的鍵必須完全一致：差一個鍵的症狀是「繁體翻得出來、簡體留英文」，
+// 光看日誌很難發現，所以在源頭鎖住。
+func TestCatalogsAreInSync(t *testing.T) {
+	hant, hans := catalogs["hant"], catalogs["hans"]
+	pairs := map[string][2]map[string]string{
+		"exact":     {hant.exact, hans.exact},
+		"prefix":    {hant.prefix, hans.prefix},
+		"errExact":  {hant.errExact, hans.errExact},
+		"errPrefix": {hant.errPrefix, hans.errPrefix},
+	}
+	for name, pair := range pairs {
+		got, want := pair[0], pair[1]
+		for k := range got {
+			if _, ok := want[k]; !ok {
+				t.Errorf("%s：簡體那份少了鍵 %q", name, k)
+			}
+		}
+		for k := range want {
+			if _, ok := got[k]; !ok {
+				t.Errorf("%s：繁體那份少了鍵 %q", name, k)
+			}
+		}
+		for k, v := range want {
+			if strings.TrimSpace(v) == "" {
+				t.Errorf("%s：簡體鍵 %q 的值是空的", name, k)
+			}
+		}
+	}
+}
+
+// 簡繁要真的差在字形**與**術語，否則其中一份只是抄來的。
+func TestVariantsDiffer(t *testing.T) {
+	hant := translateMessage(catalogs["hant"], "Connectivity Check Failed")
+	hans := translateMessage(catalogs["hans"], "Connectivity Check Failed")
+	if hant == hans {
+		t.Fatalf("繁簡翻出同一句：%q", hant)
+	}
+	if !strings.Contains(hant, "節點") || !strings.Contains(hans, "节点") {
+		t.Errorf("字形沒對上：繁 %q／簡 %q", hant, hans)
+	}
+	// 同一個英文字在兩地的习惯叫法不同（cache → 快取／缓存）。
+	h2 := translateMessage(catalogs["hant"], "[StickyIP] Cache entry expired")
+	s2 := translateMessage(catalogs["hans"], "[StickyIP] Cache entry expired")
+	if !strings.Contains(h2, "快取") || !strings.Contains(s2, "缓存") {
+		t.Errorf("術語沒對上：繁 %q／簡 %q", h2, s2)
+	}
+}
+
+func TestZhVariant(t *testing.T) {
+	for lang, want := range map[string]string{
+		"zh": "hant", "zh-TW": "hant", "zh-HK": "hant", "zh_hant": "hant",
+		"zh-CN": "hans", "zh-Hans": "hans", "zh_hans_cn": "hans",
+		"en": "", "": "", "sg": "",
+	} {
+		if got := zhVariant(lang); got != want {
+			t.Errorf("zhVariant(%q) = %q，應為 %q", lang, got, want)
+		}
+	}
+}
+
 func TestTranslateErr(t *testing.T) {
-	if got := translateErr("no applicable IP for this network type"); got == "no applicable IP for this network type" {
+	cat := catalogs["hant"]
+	if got := translateErr(cat, "no applicable IP for this network type"); got == "no applicable IP for this network type" {
 		t.Error("常見錯誤沒被翻譯")
 	}
-	got := translateErr(`Head "https://www.youtube.com/generate_204": EOF`)
+	got := translateErr(cat, `Head "https://www.youtube.com/generate_204": EOF`)
 	if !strings.HasPrefix(got, "對 HEAD 請求沒回應：") {
 		t.Errorf("Head 型錯誤應走前綴翻譯，實際: %q", got)
 	}
 	if !strings.Contains(got, "youtube.com") {
 		t.Errorf("翻譯後要把靶子留著，實際: %q", got)
 	}
-	if got := translateErr("some random Go error"); got != "some random Go error" {
+	// 兜底句也分繁簡，不能兩邊冒出同一種字形。
+	if h := translateErr(catalogs["hant"], "read tcp: EOF"); !strings.Contains(h, "對端") {
+		t.Errorf("繁體兜底句冒出簡體: %q", h)
+	}
+	if h := translateErr(catalogs["hans"], "read tcp: EOF"); !strings.Contains(h, "对端") {
+		t.Errorf("簡體兜底句冒出繁體: %q", h)
+	}
+	if got := translateErr(cat, "some random Go error"); got != "some random Go error" {
 		t.Errorf("不認識的錯誤必須原樣留著，實際: %q", got)
 	}
 }
@@ -67,14 +134,14 @@ func TestDefaultLanguageIsPassthrough(t *testing.T) {
 		t.Errorf("英文模式下內容被改寫: %q / %v", e.Message, e.Data["err"])
 	}
 
-	SetLanguage("zh")
+	SetLanguage("zh-hans")
 	if err := (i18nHook{}).Fire(e); err != nil {
 		t.Fatal(err)
 	}
-	if e.Message == "Connectivity Check Failed" {
-		t.Error("中文模式下訊息沒被改寫")
+	if !strings.Contains(e.Message, "节点") {
+		t.Errorf("簡體模式下訊息沒被改成簡體: %q", e.Message)
 	}
 	if e.Data["err"] == "i/o timeout" {
-		t.Error("中文模式下 err 欄位沒被改寫")
+		t.Error("簡體模式下 err 欄位沒被改寫")
 	}
 }

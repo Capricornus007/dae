@@ -1,12 +1,12 @@
 package logger
 
-// 中文對照表。用詞原則（用戶原話「記得也得弄成平民大白話」）：
+// 中文（繁體）對照表。簡體那份在 catalog_zh_hans.go，兩份的鍵由 TestCatalogsAreInSync 鎖住。用詞原則（用戶原話「記得也得弄成平民大白話」）：
 // 講「誰做了什麼」，不講術語縮寫；`StickyIP` 這種功能名一律翻成「固定出口IP」，
 // 因為他看的是「這行在講哪件事」，不是「這行對應哪個 Go 符號」。
 //
 // 表裡只放**這臺機器日誌真的刷出來過**的訊息（按出現次數排序取的），
 // 沒見過的訊息一律留英文原樣——翻錯比不翻更糟，而且英文原字還在，不丟證據。
-var messagesZh = map[string]string{
+var messagesHant = map[string]string{
 	"Connectivity Check Failed": "節點健康檢查沒過",
 	// 延遲數字是 logrus 的欄位、不在訊息字串裡，所以這裡是「精確」而非前綴。
 	"Connectivity Check":               "節點健康檢查",
@@ -38,7 +38,7 @@ var messagesZh = map[string]string{
 // 固定出口IP 那批訊息的**原字串帶方括號**（`[StickyIP] …`，來自 outbound 模組），
 // 是 prefixed formatter 把方括號當成「前綴」顯示成 `StickyIP: …` 的。
 // 比對要用原字串；翻成中文後不再帶方括號，就不會被再拆一次前綴。
-var messagePrefixesZh = map[string]string{
+var messagePrefixesHant = map[string]string{
 	"[StickyIP] Check cycle incremented":                                         "固定出口IP：檢查週期遞進 ",
 	"[StickyIP] No cache entry found":                                            "固定出口IP：沒有快取可查（第一次連這個地址） ",
 	"[StickyIP] DialContext called":                                              "固定出口IP：要連線了 ",
@@ -62,9 +62,9 @@ var messagePrefixesZh = map[string]string{
 	"[StickyIP] Invalidated cache for protocol+IP version":                       "固定出口IP：作廢該協議＋位址類型的快取 ",
 	"[StickyIP] Protocol cache invalidated due to connection failure":            "固定出口IP：連線失敗，作廢該協議快取 ",
 	"[StickyIP] Protocol+IP version cache invalidated due to connection failure": "固定出口IP：連線失敗，作廢該協議＋位址類型快取 ",
-	"[StickyIP] NewStickyIpDialer created":                                       "固定出口IP：建立好包装器 ",
+	"[StickyIP] NewStickyIpDialer created":                                       "固定出口IP：建立好包裝器 ",
 	"[DialerRegister] Checking if sticky IP caching is needed":                   "節點註冊：先看這條要不要固定出口IP ",
-	"[DialerRegister] Creating sticky IP dialer wrapper for proxy domain":        "節點註冊：為這個域名建立固定出口IP包装 ",
+	"[DialerRegister] Creating sticky IP dialer wrapper for proxy domain":        "節點註冊：為這個域名建立固定出口IP包裝 ",
 	"[DialerRegister] Proxy is IP address - no sticky IP caching needed":         "節點註冊：代理本身就是位址，不需要固定出口IP ",
 	"StickyIP: Check cycle incremented":                                          "固定出口IP：檢查週期遞進 ",
 	"StickyIP: No cache entry found":                                             "固定出口IP：沒有快取可查（第一次連這個地址） ",
@@ -77,9 +77,9 @@ var messagePrefixesZh = map[string]string{
 	"StickyIP: Cache hit - returning cached IP":                                  "固定出口IP：快取命中，直接沿用 ",
 	"StickyIP: Cache hit - using cached proxy IP":                                "固定出口IP：沿用記下來的地址 ",
 	"StickyIP: Cached proxy IP":                                                  "固定出口IP：已記下地址 ",
-	"StickyIP: NewStickyIpDialer created":                                        "固定出口IP：建立好包装器 ",
+	"StickyIP: NewStickyIpDialer created":                                        "固定出口IP：建立好包裝器 ",
 	"DialerRegister: Checking if sticky IP caching is needed":                    "節點註冊：先看這條要不要固定出口IP ",
-	"DialerRegister: Creating sticky IP dialer wrapper for proxy domain":         "節點註冊：為這個域名建立固定出口IP包装 ",
+	"DialerRegister: Creating sticky IP dialer wrapper for proxy domain":         "節點註冊：為這個域名建立固定出口IP包裝 ",
 	"Suppressing dialer availability failure during reload handoff":              "重載交接中，這次的失敗先不算節點壞",
 	"CRITICAL: the conn-state maps are rejecting flows continuously":             "嚴重：連線狀態表已經持續擋掉新連線 ",
 	"datapath resource exhaustion or event loss in this interval":                "這區間有資源耗盡或事件遺失 ",
@@ -105,7 +105,7 @@ var messagePrefixesZh = map[string]string{
 	"[Reload]":                                                      "〔重載〕",
 }
 
-var errsZh = map[string]string{
+var errsHant = map[string]string{
 	"no applicable IP for this network type": "這個網路類型（v4／v6）沒有可用位址",
 	"network is unreachable":                 "沒有路由可以到這個網路（通常是 v6 沒起來）",
 	"connection refused":                     "對方直接拒絕連線",
@@ -123,7 +123,7 @@ var errsZh = map[string]string{
 
 // 前綴型錯誤（`Head "https://…": EOF`、`dial tcp 1.2.3.4:443: …`）：
 // 把「做了什麼」留著、只換掉後面的原因，免得連是哪个靶子掛了都看不出來。
-var errPrefixesZh = map[string]string{
+var errPrefixesHant = map[string]string{
 	"Head \"":  "對 HEAD 請求沒回應：",
 	"Get \"":   "對 GET 請求沒回應：",
 	"dial tcp": "撥號失敗 ",
