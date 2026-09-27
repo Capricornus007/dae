@@ -21,6 +21,11 @@ jobs:
   preflight:
     name: Preflight (commit, asset names)
     runs-on: ubuntu-latest
+    # `outputs.sha` is what every downstream job pins its checkout to. It was
+    # lost in the upstream/main merge because our `permissions:` block landed on
+    # the very lines upstream declared `outputs:` on, and the merge took ours.
+    outputs:
+      sha: ${{ steps.tag.outputs.sha }}
     permissions:
       contents: read
       checks: read
@@ -41,6 +46,7 @@ jobs:
             git status --porcelain
             exit 1
           fi
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Assert required gates are green on the tag commit
         env:
@@ -167,7 +173,7 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
-          ref: ${{ inputs.tag }}
+          ref: ${{ needs.preflight.outputs.sha }}
 
       - name: Get the version
         id: get_version
