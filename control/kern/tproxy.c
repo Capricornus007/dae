@@ -4131,15 +4131,25 @@ static __always_inline int get_pid_pname(struct pid_pname *pid_pname)
 	if (unlikely(ret < 0))
 		return ret;
 
-	u8 offset = ctx.l;
+	u32 offset = ctx.l;
 
-	for (u8 i = 0; i < TASK_COMM_LEN; i++) {
-		if (offset + i < MAX_ARG_LEN && arg_buf[offset + i] != '\0') {
-			pid_pname->pname[i] = arg_buf[offset + i];
-		} else {
+	for (u32 i = 0; i < TASK_COMM_LEN; i++) {
+		u32 idx = offset + i;
+		/* barrier_var 要放在邊界檢查「之前」：它把 idx 走一次暫存器，編譯器就不能把
+		 * 比較折疊掉或挪到讀取之後，驗證器因此能在 arg_buf[idx] 那裡知道 idx 已於
+		 * [0,MAX_ARG_LEN) 內。放比較之後反而會作廢已推導出的範圍（實測兩種位置，
+		 * 只有這個順序過得了 LLVM 23 的產物）。少了它，LLVM 23 會把索引算成
+		 * var_off=(0x0;0xff) 這種無界形態，被打回
+		 * invalid variable-offset read from stack；舊版 clang 剛好留住邊界所以沒事。 */
+		barrier_var(idx);
+		if (idx >= MAX_ARG_LEN) {
 			pid_pname->pname[i] = '\0';
 			break;
 		}
+		char c = arg_buf[idx];
+		pid_pname->pname[i] = c;
+		if (c == '\0')
+			break;
 	}
 
 	return 0;
