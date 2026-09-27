@@ -15,6 +15,7 @@ import (
 
 	"github.com/daeuniverse/dae/common"
 	"github.com/daeuniverse/dae/pkg/config_parser"
+	"github.com/sirupsen/logrus"
 )
 
 var (
@@ -76,7 +77,10 @@ func (m *Merger) readEntry(entry string) (err error) {
 		return fmt.Errorf("cannot include a directory: %v", entry)
 	}
 	if fi.Mode()&0037 > 0 {
-		return fmt.Errorf("permissions %04o for '%v' are too open; requires the file is NOT writable by the same group and NOT accessible by others; suggest 0640 or 0600", fi.Mode()&0777, entry)
+		// 從「拒絕啟動」降成「提醒」：單一使用者的機器上 0644 不構成實際風險，
+		// 但任何編輯器重新存檔都可能把檔案改回 0644，屆時 dae 直接不起來，
+		// 看起來像配置壞了。（用戶 2026-09-27 要求）
+		logrus.Warnf("permissions %04o for '%v' are too open; suggest 0640 or 0600（僅提醒，不影響啟動）", fi.Mode()&0777, entry)
 	}
 	// Read and parse.
 	b, err := io.ReadAll(f)

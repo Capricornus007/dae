@@ -135,7 +135,10 @@ func ResolveFile(u *url.URL, configDir string) (b []byte, err error) {
 		return nil, fmt.Errorf("subscription file cannot be a directory: %v", path)
 	}
 	if fi.Mode()&0037 > 0 {
-		return nil, fmt.Errorf("permissions %04o for '%v' are too open; requires the file is NOT writable by the same group and NOT accessible by others; suggest 0640 or 0600", fi.Mode()&0777, path)
+		// 從「拒絕啟動」降成「提醒」：這臺機器只有單一使用者，檔位是 0644 還是 0640
+		// 不構成實際風險，但任何編輯器／工具重新存檔都可能把檔案改回 0644，
+		// 屆時 dae 直接不起來，看起來像配置壞了。（用戶 2026-09-27 要求）
+		logrus.Warnf("permissions %04o for '%v' are too open; suggest 0640 or 0600（僅提醒，不影響啟動）", fi.Mode()&0777, path)
 	}
 	// Resolve the first line instruction.
 	fReader := bufio.NewReader(f)
