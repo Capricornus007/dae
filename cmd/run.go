@@ -472,6 +472,22 @@ func (r *Runner) Run() (err error) {
 	reloadReqs := make(chan reloadRequest, 1)
 	reloadManager := newReloadManager(reloadReqs, runStateChanges, sigs)
 	w.reloadManager = reloadManager
+	// 訂閱定期更新：走跟 `dae reload` 完全同一條路（排進 reloadManager），
+	// 不另起一套「熱換節點」的邏輯，避免兩份實現在不同步時互相蓋。
+	if conf.Global.SubscriptionUpdateInterval > 0 {
+		go func(d time.Duration) {
+			t := time.NewTicker(d)
+			defer t.Stop()
+			for range t.C {
+				w.log.Infoln("訂閱定期更新：觸發一次重載")
+				reloadManager.queueReloadRequest(w.log, reloadRequest{
+					isSuspend:       false,
+					requestedAt:     time.Now(),
+					requestedAtMono: monotonicNowNano(),
+				})
+			}
+		}(conf.Global.SubscriptionUpdateInterval)
+	}
 	w.runStateChanges = runStateChanges
 	fastExit := false
 	var fatalRunErr error

@@ -24,17 +24,20 @@ type Global struct {
 	LogLevel          string `mapstructure:"log_level" default:"info"`
 	// We use DirectTcpCheckUrl to check (tcp)*(ipv4/ipv6) connectivity for direct.
 	// DirectTcpCheckUrl string `mapstructure:"direct_tcp_check_url" default:"http://www.qualcomm.cn/generate_204"`
-	TcpCheckUrl           []string      `mapstructure:"tcp_check_url" default:"http://cp.cloudflare.com,1.1.1.1,2606:4700:4700::1111"`
-	TcpCheckHttpMethod    string        `mapstructure:"tcp_check_http_method" default:"HEAD"` // Use 'HEAD' because some server implementations bypass accounting for this kind of traffic.
-	UdpCheckDns           []string      `mapstructure:"udp_check_dns" default:"dns.google:53,8.8.8.8,2001:4860:4860::8888"`
-	CheckInterval         time.Duration `mapstructure:"check_interval" default:"30s"`
-	CheckTolerance        time.Duration `mapstructure:"check_tolerance" default:"0"`
-	LanInterface          []string      `mapstructure:"lan_interface"`
-	WanInterface          []string      `mapstructure:"wan_interface"`
-	AllowInsecure         bool          `mapstructure:"allow_insecure" default:"false"`
-	DialMode              string        `mapstructure:"dial_mode" default:"domain"`
-	DisableWaitingNetwork bool          `mapstructure:"disable_waiting_network" default:"false"`
-	DisableTHP            bool          `mapstructure:"disable_thp" default:"false"`
+	TcpCheckUrl        []string      `mapstructure:"tcp_check_url" default:"http://cp.cloudflare.com,1.1.1.1,2606:4700:4700::1111"`
+	TcpCheckHttpMethod string        `mapstructure:"tcp_check_http_method" default:"HEAD"` // Use 'HEAD' because some server implementations bypass accounting for this kind of traffic.
+	UdpCheckDns        []string      `mapstructure:"udp_check_dns" default:"dns.google:53,8.8.8.8,2001:4860:4860::8888"`
+	CheckInterval      time.Duration `mapstructure:"check_interval" default:"30s"`
+	// 訂閱定期更新間隔，0 代表關閉。dae 本來只在啟動與 reload 時抓訂閱，
+	// 機場換節點就得有人重載一次；這個開關讓它自己按時重載。
+	SubscriptionUpdateInterval time.Duration `mapstructure:"subscription_update_interval" default:"0"`
+	CheckTolerance             time.Duration `mapstructure:"check_tolerance" default:"0"`
+	LanInterface               []string      `mapstructure:"lan_interface"`
+	WanInterface               []string      `mapstructure:"wan_interface"`
+	AllowInsecure              bool          `mapstructure:"allow_insecure" default:"false"`
+	DialMode                   string        `mapstructure:"dial_mode" default:"domain"`
+	DisableWaitingNetwork      bool          `mapstructure:"disable_waiting_network" default:"false"`
+	DisableTHP                 bool          `mapstructure:"disable_thp" default:"false"`
 	// Deprecated: not used as of https://github.com/daeuniverse/dae/pull/912.
 	EnableLocalTcpFastRedirect bool `mapstructure:"enable_local_tcp_fast_redirect" default:"false"`
 	AutoConfigKernelParameter  bool `mapstructure:"auto_config_kernel_parameter" default:"false"`
