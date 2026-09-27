@@ -37,7 +37,13 @@ on:
       - "go.sum"
       - ".github/workflows/bpf-test.yml"
 
-permissions: read-all
+# Only checkout/setup-go/cache run here, so ask for exactly that. The old
+# `read-all` bought nothing and, worse, exceeded the ceiling of the caller
+# when this file is invoked as a reusable workflow, which made GitHub reject
+# the whole `Publish Nightly` run at parse time.
+permissions:
+  contents: read
+  actions: read
 
 jobs:
   bpf_tests:

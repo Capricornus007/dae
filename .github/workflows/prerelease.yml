@@ -16,6 +16,9 @@ on:
 
 permissions:
   contents: read
+  # Ceiling for the reusable calls below; go-test/bpf-test ask for actions: read
+  # (actions/cache), and a called job may not exceed its caller's grant.
+  actions: read
 
 jobs:
   preflight:
