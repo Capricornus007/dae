@@ -31,6 +31,13 @@ const (
 	DaeVethTxQLen = 1000
 )
 
+// The test seam variables declared in this block (setNetnsFunc, the named
+// netns/link/mount functions, and netnsNamedDir) are swapped by tests without
+// any synchronization, so they rely on an unstated invariant: tests that swap
+// them, or that exercise the DaeNetns lifecycle driving them, must run
+// sequentially. Never add t.Parallel() to such a test; a parallel neighbor
+// swapping or reading the same seam would race on it. Production code never
+// writes these after package init.
 var (
 	daeNetns     *DaeNetns
 	once         sync.Once
@@ -421,7 +428,7 @@ func (ns *DaeNetns) tryCreateNetkit() (err error) {
 
 	// Delete existing link if present
 	ns.log.Debugf("Deleting existing link %s if present", HostVethName)
-	_ = DeleteLink(HostVethName)
+	_ = deleteLinkFunc(HostVethName)
 
 	// Try to create Netkit device
 	// Configure scrub=NONE to preserve skb->mark across the netkit boundary.
@@ -457,7 +464,7 @@ func (ns *DaeNetns) tryCreateNetkit() (err error) {
 
 	if err = requireNetkitL2WithMAC(ns.dae0, ns.dae0peer); err != nil {
 		ns.log.Warnf("Rejecting Netkit pair: %v", err)
-		_ = DeleteLink(HostVethName)
+		_ = deleteLinkFunc(HostVethName)
 		ns.dae0 = nil
 		ns.dae0peer = nil
 		return err
@@ -640,7 +647,7 @@ func (ns *DaeNetns) setupRoutingPolicy() (err error) {
 }
 func (ns *DaeNetns) setupVeth() (err error) {
 	// ip l a dae0 type veth peer name dae0peer
-	_ = DeleteLink(HostVethName)
+	_ = deleteLinkFunc(HostVethName)
 	if err = netlink.LinkAdd(&netlink.Veth{
 		LinkAttrs: netlink.LinkAttrs{
 			Name:   HostVethName,
@@ -959,15 +966,29 @@ func (ns *DaeNetns) setupIPv6Datapath() (err error) {
 	return
 }
 
+// DeleteNamedNetns unmounts and removes the named netns mount point under
+// netnsNamedDir. A missing entry is success: both callers invoke the deletion
+// speculatively and nothing to delete is the normal no-stale-state case.
+//
+// A non-nil return for a valid single-component name means the entry survived:
+// only a failed removal produces one, so callers may rely on that to decide
+// that a following NewNamed cannot succeed either.
+//
+// A synchronous unmount is tried first; MNT_DETACH alone is lazy and may leave
+// the mount point behind (os.Remove then fails with EBUSY), which leaks the
+// entry and breaks a subsequent restart, so it is only a fallback. Some kernels
+// lock the mount (MNT_LOCKED, set when the entry is inherited across a user
+// namespace boundary, e.g. inside LXC containers) and reject every umount(2)
+// flag combination with EINVAL before MNT_DETACH is even considered; discarding
+// those errnos left only the EBUSY from os.Remove, which says nothing about why
+// the mount cannot be cleared (issue #1109).
 func DeleteNamedNetns(name string) error {
+	// The name reaches unmount(2) and unlink(2) as a path component; a
+	// traversal name would escape netnsNamedDir.
 	if name == "" || name != path.Base(name) || name == "." || name == ".." {
 		return fmt.Errorf("invalid named netns %q", name)
 	}
 	namedPath := path.Join(netnsNamedDir, name)
-	// Try a synchronous unmount first; MNT_DETACH alone is lazy and may leave
-	// the mount point behind (os.Remove then fails with EBUSY), which leaks
-	// /run/netns/<name> and breaks a subsequent restart. Fall back to lazy
-	// unmount only if the synchronous one fails (e.g. device busy).
 	syncErr := unmountFunc(namedPath, 0)
 	var lazyErr error
 	if syncErr != nil {

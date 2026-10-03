@@ -13,6 +13,7 @@ import (
 
 	"github.com/daeuniverse/dae/common/consts"
 	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
 )
 
 // lockProbeWriter fails the test when the latency listing is rendered while
@@ -69,6 +70,16 @@ func TestNotifyLatencyDoesNotHoldWriteLockDuringFormatting(t *testing.T) {
 	d1 := newNamedTestDialer(t, "print-1")
 	d2 := newNamedTestDialer(t, "print-2")
 
+	// Seed both dialers before construction so the initial ranking is real
+	// (d1 100ms, d2 500ms) rather than an optimistic 0-latency key: a dialer
+	// without a measurement can no longer outrank a measured one.
+	d1.collectionFineMu.Lock()
+	d1.mustGetCollection(networkType).Latencies10.AppendLatency(100 * time.Millisecond)
+	d1.collectionFineMu.Unlock()
+	d2.collectionFineMu.Lock()
+	d2.mustGetCollection(networkType).Latencies10.AppendLatency(500 * time.Millisecond)
+	d2.collectionFineMu.Unlock()
+
 	set := NewAliveDialerSet(
 		d1.Log,
 		"print-group",
@@ -94,15 +105,13 @@ func TestNotifyLatencyDoesNotHoldWriteLockDuringFormatting(t *testing.T) {
 	// the level that actually reaches the renderer.
 	d1.Log.SetLevel(logrus.DebugLevel)
 
-	// The constructor already registered both dialers as alive with an
-	// optimistic 0-latency sort key. Giving d1 a real probe latency makes the
-	// group re-rank onto d2 (whose optimistic key is still smaller), which is
-	// the path that renders the listing.
-	d1.collectionFineMu.Lock()
-	d1.mustGetCollection(networkType).Latencies10.AppendLatency(100 * time.Millisecond)
-	d1.collectionFineMu.Unlock()
+	// A better real latency for d2 re-ranks the measured group, which is the
+	// path that renders the listing.
 	before := probe.countsRenders()
-	set.NotifyLatencyChange(d1, true)
+	d2.collectionFineMu.Lock()
+	d2.mustGetCollection(networkType).Latencies10.AppendLatency(50 * time.Millisecond)
+	d2.collectionFineMu.Unlock()
+	set.NotifyLatencyChange(d2, true)
 	if probe.countsRenders() == before {
 		t.Fatal("the latency listing was not rendered; the probe observed nothing")
 	}
@@ -113,7 +122,81 @@ func TestNotifyLatencyDoesNotHoldWriteLockDuringFormatting(t *testing.T) {
 	}
 }
 
-// TestLatencySnapshotIsByValue guards the hard requirement behind: the
+// TestLatencyTableShowsClassTiers pins the mixed-class render: the debug table
+// is ordered by the selection comparator (measurement class first, then key)
+// and carries each row's class, so an operator reading why a measured dialer
+// was selected over a lower offset-only key sees the class tier spelled out.
+// Sorting by the raw key alone used to rank the unmeasured row first.
+func TestLatencyTableShowsClassTiers(t *testing.T) {
+	networkType := newTestNetworkType()
+	measured := newNamedTestDialer(t, "m-node")
+	unmeasured := newNamedTestDialer(t, "u-node")
+
+	logger, hook := test.NewNullLogger()
+	logger.SetLevel(logrus.DebugLevel)
+	measured.Log = logger
+	unmeasured.Log = logger
+
+	appendLatencyLocked(measured, networkType, 500*time.Millisecond)
+
+	set := NewAliveDialerSet(
+		logger,
+		"tier-group",
+		networkType,
+		0,
+		consts.DialerSelectionPolicy_MinLastLatency,
+		[]*Dialer{measured, unmeasured},
+		[]*Annotation{{}, {AddLatency: -100 * time.Millisecond}},
+		func(bool) {},
+		true,
+	)
+	measured.RegisterAliveDialerSet(set)
+	unmeasured.RegisterAliveDialerSet(set)
+	t.Cleanup(func() {
+		measured.UnregisterAliveDialerSet(set)
+		unmeasured.UnregisterAliveDialerSet(set)
+	})
+
+	snap, ok := set.snapshotLatenciesLocked()
+	if !ok {
+		t.Fatal("latency snapshot was not built at debug level")
+	}
+	set.printLatenciesOutOfLock(snap)
+
+	var table string
+	for _, entry := range hook.AllEntries() {
+		if strings.Contains(entry.Message, "Group 'tier-group'") {
+			table = entry.Message
+		}
+	}
+	if table == "" {
+		t.Fatal("latency table was not rendered")
+	}
+	var measuredRow, unmeasuredRow = -1, -1
+	for i, line := range strings.Split(table, "\n") {
+		switch {
+		case strings.Contains(line, "m-node"):
+			measuredRow = i
+			if !strings.Contains(line, "measured") {
+				t.Fatalf("measured row lacks its class: %v", line)
+			}
+		case strings.Contains(line, "u-node"):
+			unmeasuredRow = i
+			if !strings.Contains(line, "unmeasured") {
+				t.Fatalf("unmeasured row lacks its class: %v", line)
+			}
+		}
+	}
+	if measuredRow < 0 || unmeasuredRow < 0 {
+		t.Fatalf("table is missing a row (measured=%d unmeasured=%d):\n%v", measuredRow, unmeasuredRow, table)
+	}
+	if measuredRow > unmeasuredRow {
+		t.Fatalf("table ranks the unmeasured row above the measured one despite the "+
+			"class tier:\n%v", table)
+	}
+}
+
+// TestLatencySnapshotIsByValue guards the hard requirement behind P2-27: the
 // snapshot must copy everything the renderer needs, because aliveEntries is
 // mutated in place (append / swap-remove) and dialerToLatency is replaced
 // wholesale by recomputeSelectionStateLocked. Under -race, leaking either

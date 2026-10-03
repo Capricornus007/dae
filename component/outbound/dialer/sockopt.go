@@ -26,6 +26,13 @@ func init() {
 	}
 }
 
+// TproxyTCPMaxSeg defines the maximum segment size clamped on the Tproxy stream listener.
+// Clamping prevents oversize packets when proxied traffic is later encapsulated in tunnel protocols.
+// Setting TproxyTCPMaxSeg <= 0 disables MSS clamping on the listener.
+// Note: On Linux TCP connections with timestamp options (12 bytes), setting TCP_MAXSEG to 1380
+// yields an effective payload MSS of ~1368 bytes in data segments.
+var TproxyTCPMaxSeg = 1380
+
 func SoMarkControl(c syscall.RawConn, mark int) error {
 	var sockOptErr error
 	controlErr := c.Control(func(fd uintptr) {
@@ -66,6 +73,16 @@ func TproxyControl(c syscall.RawConn) error {
 			// Surface e4 as the primary error (IPv4 is the more common path).
 			sockOptErr = fmt.Errorf("error setting IP_RECVORIGDSTADDR socket option: %w", e4)
 			return
+		}
+
+		// Check socket type: apply TCP-specific options only on stream sockets.
+		// RFC 7413 note: We explicitly do NOT set TCP_FASTOPEN on this transparent proxy listener.
+		// Tproxy listener receives redirected SYNs with cookies minted for the real destination,
+		// which would fail validation and risk unconsented duplicate delivery of non-idempotent data.
+		if sockType, err := unix.GetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_TYPE); err == nil && sockType == unix.SOCK_STREAM {
+			if TproxyTCPMaxSeg > 0 {
+				_ = unix.SetsockoptInt(int(fd), unix.IPPROTO_TCP, unix.TCP_MAXSEG, TproxyTCPMaxSeg)
+			}
 		}
 	})
 	if controlErr != nil {

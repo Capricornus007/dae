@@ -207,28 +207,42 @@ send every query for that domain to upstream synchronously.
 
 ## Bootstrap resolver (`global`)
 
-dae queries `global.bootstrap_resolver` directly, never through a proxy, for
-three kinds of lookups. The first is the hostname of any `dns.upstream` entry
-that is not an IP literal. The second is the background probe that
-`dial_mode: domain` (the default) runs for a sniffed domain that has no `A` or
-`AAAA` record in dae's DNS cache. `domain+` and `domain++` skip that probe, and
-`ip` never dials by domain. `dial_mode` accepts only `ip`, `domain`, `domain+`
-and `domain++`. The third applies when `dns.routing.request` contains any rule,
-which enables dae's internal DNS router. When no `sub()`, `node()` or
-`subnode()` rule assigns the subscription URL host or a node's server hostname
-to an upstream, or when the assigned upstream returns no address, dae resolves
-that hostname through the bootstrap resolver. These lookups bypass the `qname`
-and `qtype` rules and happen while DNS routing is running, not only at startup.
-
-If the option is unset, dae falls back to `119.29.29.29:53` and then
-`223.5.5.5:53`. Setting it replaces both defaults; dae uses only the configured
-resolver. For a host outside mainland China, a closer resolver is usually preferable:
+`global.bootstrap_resolver` covers the lookups that must succeed before dae's
+own DNS routing can serve them: resolving DNS upstream hostnames,
+`dial_mode: real-domain` probes, and node addresses that no `node`/`sub` rule
+routes (see below). Left unset, dae falls back to `119.29.29.29:53`
+and then `223.5.5.5:53`; setting the option replaces those defaults entirely and
+is used alone. A host outside mainland China usually wants a closer resolver:
 
 ```shell
 global {
   bootstrap_resolver: '9.9.9.9:53'
 }
 ```
+
+A node address that no `node`/`sub` rule in `dns.routing` selects an upstream
+for is resolved through the system resolver and through the bootstrap resolvers
+at the same time, and the first answer wins. The system view is the first
+non-loopback server in `/etc/resolv.conf`, or `global.fallback_resolver` when
+that file is missing, unreadable, or supplies no non-loopback server; its query
+leaves directly, without dae DNS routing. Racing the two keeps one blocked
+resolver from stopping every node: an unusable system resolver still reaches the
+bootstrap resolvers, and blocked bootstrap resolvers still resolve through the
+system view. Each leg of the race stops after 10 seconds, so a resolver that
+silently drops queries cannot hold node dialing open; an answer that arrives
+sooner still wins immediately. Because the first answer wins, a host
+resolver that filters or rewrites the node's name decides the address; when the
+two views must not be interchangeable, route that node's hostname in
+`dns.routing.node` to a specific upstream and dae uses it instead.
+
+Two consequences deserve spelling out. A node's hostname now also reaches the
+system resolver even when `global.bootstrap_resolver` is explicitly pinned, so
+an operator who must keep proxy hostnames off the host resolver has to route
+them in `dns.routing.node`. And subscription hosts fetched at startup that no
+`dns.routing.sub` rule routes are still resolved through the bootstrap resolvers
+only: a matching `sub` rule still selects its upstream on the startup router,
+and no runtime generation exists yet at that point, so the race described above
+starts with the first generation.
 
 ## Templates
 

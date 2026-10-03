@@ -40,7 +40,7 @@ require (
 require (
 	github.com/Masterminds/semver/v3 v3.4.0 // indirect
 	github.com/STARRY-S/zip v0.2.3 // indirect
-	github.com/andybalholm/brotli v1.2.0 // indirect
+	github.com/andybalholm/brotli v1.2.1 // indirect
 	github.com/awnumar/fastrand v0.0.0-20210315215012-30ee0990fa2d // indirect
 	github.com/awnumar/memcall v0.5.0 // indirect
 	github.com/awnumar/memguard v0.23.0 // indirect
@@ -64,7 +64,7 @@ require (
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
-	github.com/klauspost/compress v1.18.4 // indirect
+	github.com/klauspost/compress v1.18.6 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/klauspost/pgzip v1.2.6 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
@@ -108,26 +108,27 @@ require (
 	lukechampine.com/blake3 v1.4.1 // indirect
 )
 
-// Custom quic-go fork: GSO write paths, key-update handling, congestion
-// control, and explicit transport-address behavior.
-replace github.com/olicesx/quic-go => github.com/olicesx/quic-go v0.0.0-20260910141758-62d80bbebb5b
+// Use the custom quic-go fork for the verified GSO, key-update, congestion-
+// control, and explicit-transport address behavior. Performance and security
+// claims are enforced in the fork's own unit/race gates; no GC behavior is
+// inferred from pool implementation choice here.
+replace github.com/olicesx/quic-go => github.com/olicesx/quic-go v0.0.0-20261003000424-f64271925d81
 
 //replace github.com/cilium/ebpf v0.20.0
 //replace github.com/daeuniverse/dae-config-dist/go/dae_config => /home/mzz/antlrProjects/dae-config/build/go/dae_config
 
-// Custom outbound fork: protocol lifecycle and framing hardening, cancellable
-// dial queues, UDP write-path cmsg preservation, and congestion-control fixes.
-// This revision resolves optional conn capabilities through every wrapper
-// layer (SSR obfs cipher hooks, XTLS/vision absorption, TLS ALPN checks) and
-// adds end-to-end suites for every protocol in the repository. It also fixes
-// the dropped close_notify on TLS half-close, a dial-path panic when an h2
-// CONNECT is denied, out-of-bounds naive padding on 32-bit builds, vmess UDP
-// targets encoded with the IPv6 addr type, the missing shadowsocks-2022
-// response request-salt verification, and the simple-obfs response-header
-// bound ordering. This revision also authenticates REALITY handshakes with
-// AES-GCM, the algorithm both reference servers decrypt with, instead of
-// deriving it from the offered cipher suites, reports fingerprints that provide
-// no usable TLS 1.3 key share, rebuilds the ClientHello up to sixteen times
-// while a randomized fingerprint has not produced one, and resolves fingerprint
-// names the way Xray and sing-box do.
-replace github.com/daeuniverse/outbound => github.com/Capricornus007/outbound v0.0.0-sticky-ip.0.20260926085806-3f777c902b54
+// Custom outbound fork. Our fork (Capricornus007/outbound) is the mainline and
+// now carries both sides: protocol lifecycle and framing hardening, cancellable
+// dial queues, UDP write-path cmsg preservation, congestion-control fixes
+// (bbr3 low-RTT pacing deadlock broken, STARTUP no longer aborts on background
+// loss), TLS record coalescing across anytls and the shared tls/ws transports,
+// the sticky-IP resolution behaviour, and - merged in from olicesx on 2026-10-03
+// - the typed netproxy.ErrDatagramDropped read contract across the packet read
+// paths (anytls/vless/vision/vmess/hy2/trojanc/juicity/tuic), the vision UDP
+// frame-length uint16 wrap that dropped every 64 KiB datagram, the vmess
+// packet-addr reader that no longer stages through a 2048-byte buffer, the
+// vmess writePacket 16-bit length overflow guard, the ReadBufferer capability
+// and the netproxy.UnderlyingConnForwarder that lets TLS legs peel to the core
+// receive queue. Wrapper capability parity is enforced by a reflection-driven
+// gate in the fork.
+replace github.com/daeuniverse/outbound => github.com/Capricornus007/outbound v0.0.0-20261003125742-25e6ffb4dd37

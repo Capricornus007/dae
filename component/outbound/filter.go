@@ -79,6 +79,21 @@ func (s *DialerSet) AllDialers() []*dialer.Dialer {
 	return append([]*dialer.Dialer(nil), s.dialers...)
 }
 
+// sortedSubscriptionTags returns the tag map's keys in a stable order so the
+// dialer list (and therefore what fixed(N) selects) is reproducible across
+// builds and reloads despite Go's randomized map iteration. The resulting total
+// order is: inline-config nodes first (the empty tag sorts before any
+// subscription tag), then subscription tags alphabetically, and within a tag
+// shared by several subscriptions the subscription config order.
+func sortedSubscriptionTags(tagToNodeList map[string][]string) []string {
+	tags := make([]string, 0, len(tagToNodeList))
+	for tag := range tagToNodeList {
+		tags = append(tags, tag)
+	}
+	sort.Strings(tags)
+	return tags
+}
+
 // noteParseFailure records one dropped node. The first dropped node of the
 // build warns with the concrete parse error; the rest are folded into a single
 // aggregate line, because a subscription refresh can invalidate hundreds of
@@ -153,7 +168,11 @@ func NewDialerSetFromLinksContext(ctx context.Context, option *dialer.GlobalOpti
 		dialers:      make([]*dialer.Dialer, 0),
 		nodeToTagMap: make(map[*dialer.Dialer]string),
 	}
-	for subscriptionTag, nodes := range tagToNodeList {
+	// Map iteration order is randomized, which made the dialer order (and
+	// therefore what fixed(0) selects) differ between builds and reloads;
+	// iterate the tags in a stable order instead.
+	for _, subscriptionTag := range sortedSubscriptionTags(tagToNodeList) {
+		nodes := tagToNodeList[subscriptionTag]
 		for _, node := range nodes {
 			d, err := dialer.NewFromLinkContext(ctx, option, dialer.InstanceOption{DisableCheck: false}, node, subscriptionTag)
 			if err != nil {

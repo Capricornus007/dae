@@ -58,6 +58,11 @@ func (defaultRelayCopyEngine) Copy(ctx context.Context, dst netproxy.Conn, src n
 	if shouldUseRelayFastPath(dst, src) {
 		return relayFastCopy(ctx, dst, src, record, onActive)
 	}
+	// Steady-state write gathering for wrapped legs batches consecutive
+	// reads into single writev flushes (default-on; disable via env).
+	if n, err, ok := relaySteadyGatherCopy(ctx, dst, src, record, onActive); ok {
+		return n, err
+	}
 	// Slow path: will call Read() on wrapped connections
 	bufPtr := relayCopyBufferPool.Get().(*[]byte)
 	buf := *bufPtr
@@ -76,7 +81,6 @@ func relayCopyLoop(ctx context.Context, dst netproxy.Conn, src netproxy.Conn, bu
 
 		nr, er := src.Read(buf)
 		if nr > 0 {
-			onActive(int64(nr))
 			nw, ew := dst.Write(buf[:nr])
 			written += int64(nw)
 			if nw > 0 {
@@ -116,7 +120,6 @@ func relayCopyDirect(ctx context.Context, dst io.Writer, src io.Reader, buf []by
 		}
 		nr, er := src.Read(buf)
 		if nr > 0 {
-			onActive(int64(nr))
 			nw, ew := dst.Write(buf[:nr])
 			written += int64(nw)
 			if nw > 0 {
