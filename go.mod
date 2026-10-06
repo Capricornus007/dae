@@ -7,7 +7,7 @@ require (
 	github.com/antlr/antlr4/runtime/Go/antlr/v4 v4.0.0-20230305170008-8188dc5388df
 	github.com/cilium/ebpf v0.22.0
 	github.com/daeuniverse/dae-config-dist/go/dae_config v0.0.0-20230604120805-1c27619b592d
-	github.com/daeuniverse/outbound v0.0.0-sticky-ip.0.20260911162531-896954f65c52
+	github.com/daeuniverse/outbound v0.0.0-sticky-ip.0.20261005062231-f109ab8f1ebe
 	github.com/dlclark/regexp2 v1.11.5
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/json-iterator/go v1.1.12
@@ -15,7 +15,7 @@ require (
 	github.com/miekg/dns v1.1.72
 	github.com/mohae/deepcopy v0.0.0-20170929034955-c48cc78d4826
 	github.com/okzk/sdnotify v0.0.0-20240725214427-1c1fdd37c5ac
-	github.com/olicesx/quic-go v0.0.0-20260910141758-62d80bbebb5b
+	github.com/olicesx/quic-go v0.0.0-20261005062217-83c1ab8a6b18
 	github.com/panjf2000/ants/v2 v2.11.5
 	github.com/safchain/ethtool v0.7.0
 	github.com/shirou/gopsutil/v4 v4.26.1
@@ -112,7 +112,7 @@ require (
 // control, and explicit-transport address behavior. Performance and security
 // claims are enforced in the fork's own unit/race gates; no GC behavior is
 // inferred from pool implementation choice here.
-replace github.com/olicesx/quic-go => github.com/olicesx/quic-go v0.0.0-20261003000424-f64271925d81
+replace github.com/olicesx/quic-go => github.com/olicesx/quic-go v0.0.0-20261005062217-83c1ab8a6b18
 
 //replace github.com/cilium/ebpf v0.20.0
 //replace github.com/daeuniverse/dae-config-dist/go/dae_config => /home/mzz/antlrProjects/dae-config/build/go/dae_config
@@ -131,4 +131,23 @@ replace github.com/olicesx/quic-go => github.com/olicesx/quic-go v0.0.0-20261003
 // and the netproxy.UnderlyingConnForwarder that lets TLS legs peel to the core
 // receive queue. Wrapper capability parity is enforced by a reflection-driven
 // gate in the fork.
+// The fork also carries work its upstream does not have: the mKCP and
+// meek/mekya transports and their link schemes, sticky-IP resolution through
+// the base dialer, utls v1.8.2 Reality compatibility, grpc over reality, the
+// last-good-IP fallback DNS path, and the x/* versions that keep the h2 route
+// intact. Retargeting this replace to olicesx/outbound would delete all of it
+// from the shipped binary, so the pin stays on our fork even though the
+// upstream branch moved to olicesx@df4dc6411686 in this batch.
+// The gap is recorded rather than silently kept: olicesx/outbound has 14
+// commits past the 2026-10-03 merge, among them the typed-nil
+// net.Dialer.LocalAddr fix (df4dc6411686, the reason upstream bumped, which is
+// what makes dial errors render "<nil>" as the source), the hysteria2
+// hop-conn OOB/batch masking on proxied underlays, CloseWrite forwarding
+// through UnderlyingConnForwarder, anytls UDP framing order, the ss2022
+// header-only datagram, the write-side datagram-dropped contract, the bbr3
+// hint in-flight budget and the jumbo arena unmap guard. Those land when
+// olicesx is merged into this fork - a change to the outbound repo, not to
+// this file.
+// The require version above only tracks upstream; it is inert because the
+// replace below covers every version of the module.
 replace github.com/daeuniverse/outbound => github.com/Capricornus007/outbound v0.0.0-20261003125742-25e6ffb4dd37
