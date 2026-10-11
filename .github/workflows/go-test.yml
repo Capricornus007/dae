@@ -25,7 +25,7 @@ on:
     # as bpf-test.yml: a commit that only touches docs or workflows could never be
     # published.
 
-# Only checkout/setup-go/cache run here, so ask for exactly that. The old
+# Only checkout/setup-feed-go/cache run here, so ask for exactly that. The old
 # `read-all` bought nothing and, worse, exceeded the ceiling of the caller
 # when this file is invoked as a reusable workflow, which made GitHub reject
 # the whole `Publish Nightly` run at parse time.
@@ -48,11 +48,8 @@ jobs:
         with:
           ref: ${{ inputs.ref }}
 
-      - name: Set up Go 1.27.1
-        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
-        with:
-          go-version: "1.27.1"
-          cache: false
+      - name: Install Go from the feed (golang/go master tip)
+        uses: Capricornus007/repo/.github/actions/setup-feed-go@master
 
       - name: "Apply the canonical build experiments (single owner: Makefile)"
         # P3-19: this job runs `go test` directly, so it must take the value
@@ -71,9 +68,9 @@ jobs:
           path: |
             ~/.cache/go-build
             ~/go/pkg/mod
-          key: ${{ runner.os }}-go-unit-1.26-${{ hashFiles('**/go.sum', 'Makefile') }}
+          key: ${{ runner.os }}-go-unit-gotip-${{ hashFiles('**/go.sum', 'Makefile') }}
           restore-keys: |
-            ${{ runner.os }}-go-unit-1.26-
+            ${{ runner.os }}-go-unit-gotip-
 
       - name: Run tests
         run: |
@@ -94,11 +91,8 @@ jobs:
         with:
           ref: ${{ inputs.ref }}
 
-      - name: Set up Go 1.27.1
-        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
-        with:
-          go-version: "1.27.1"
-          cache: false
+      - name: Install Go from the feed (golang/go master tip)
+        uses: Capricornus007/repo/.github/actions/setup-feed-go@master
 
       - name: Apply the canonical build experiments
         run: make -s print-goexperiment-env >> "$GITHUB_ENV"
@@ -109,9 +103,9 @@ jobs:
           path: |
             ~/.cache/go-build
             ~/go/pkg/mod
-          key: ${{ runner.os }}-go-race-1.26-${{ hashFiles('**/go.sum', 'Makefile') }}
+          key: ${{ runner.os }}-go-race-gotip-${{ hashFiles('**/go.sum', 'Makefile') }}
           restore-keys: |
-            ${{ runner.os }}-go-race-1.26-
+            ${{ runner.os }}-go-race-gotip-
 
       - name: Run tests with race detector
         run: |
@@ -132,11 +126,8 @@ jobs:
         with:
           ref: ${{ inputs.ref }}
 
-      - name: Set up Go 1.27.1
-        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
-        with:
-          go-version: "1.27.1"
-          cache: false
+      - name: Install Go from the feed (golang/go master tip)
+        uses: Capricornus007/repo/.github/actions/setup-feed-go@master
 
       - name: Apply the canonical build experiments
         run: make -s print-goexperiment-env >> "$GITHUB_ENV"
@@ -152,9 +143,9 @@ jobs:
           path: |
             ~/.cache/go-build
             ~/go/pkg/mod
-          key: ${{ runner.os }}-go-ebpf-1.26-${{ hashFiles('**/go.sum', 'Makefile') }}
+          key: ${{ runner.os }}-go-ebpf-gotip-${{ hashFiles('**/go.sum', 'Makefile') }}
           restore-keys: |
-            ${{ runner.os }}-go-ebpf-1.26-
+            ${{ runner.os }}-go-ebpf-gotip-
 
       - name: Generate eBPF bindings
         run: |

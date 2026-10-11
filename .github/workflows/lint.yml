@@ -50,19 +50,20 @@ jobs:
       with:
         ref: ${{ inputs.ref }}
 
-    - name: Set up Go 1.27.1
-      uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
-      with:
-        go-version: "1.27.1"
+    - name: Install Go from the feed (golang/go master tip)
+      uses: Capricornus007/repo/.github/actions/setup-feed-go@master
 
     - name: Apply the canonical build experiments
       run: make -s print-goexperiment-env >> "$GITHUB_ENV"
 
-    - name: Run golangci-lint
-      uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
+    # 不能用 golangci-lint-action：它釘 x/tools v0.50.0，讀不了 go tip 的 std export data
+    # （實測 v0.50 ✗、v0.51 ✓）→ Lint 必紅。版本照舊 v2.13.2，只抬它的依賴。
+    - name: Install golangci-lint v2.13.2 (with x/tools that reads Go tip)
+      uses: Capricornus007/repo/.github/actions/setup-gcl@master
       with:
         version: v2.13.2
-        args: --timeout=10m --build-tags=dae_stub_ebpf
+    - name: Run golangci-lint
+      run: golangci-lint run --timeout=10m --build-tags=dae_stub_ebpf
 
   ebpf-lint:
     runs-on: ubuntu-22.04

@@ -47,11 +47,8 @@ jobs:
       - name: Checkout dae
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
-      - name: Set up Go 1.27.1
-        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
-        with:
-          go-version: "1.27.1"
-          cache: true
+      - name: Install Go from the feed (golang/go master tip)
+        uses: Capricornus007/repo/.github/actions/setup-feed-go@master
 
       # Dependency package tests are not included by dae's own ./... tests.
       # Keep this in dae's module graph; standalone fork tests below use each
