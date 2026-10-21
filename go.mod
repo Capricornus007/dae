@@ -150,4 +150,4 @@ replace github.com/olicesx/quic-go => github.com/olicesx/quic-go v0.0.0-20261005
 // this file.
 // The require version above only tracks upstream; it is inert because the
 // replace below covers every version of the module.
-replace github.com/daeuniverse/outbound => github.com/Capricornus007/outbound v0.0.0-20261011114036-1d4670278029
+replace github.com/daeuniverse/outbound => github.com/Capricornus007/outbound v0.1.0
