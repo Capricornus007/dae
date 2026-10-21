@@ -40,6 +40,9 @@ type DialerGroup struct {
 
 	resuscitateLastTime atomic.Int64
 	noAliveLogLastTimes [8]atomic.Int64
+	// coldStartCursor 只在「健康資料還沒有」的冷啟動退回路徑上用：每退一次就前進一格，
+	// 讓客戶端重試時踩到不同節點，而不是全部撞同一條死節點（實測重啟後會黑 15~20 秒）。
+	coldStartCursor atomic.Uint32
 	// alivePublishMissingSetCount counts availability publications that could
 	// not revalidate a policy that needs alive state because this network type
 	// has no AliveDialerSet. The last published value is kept in that case, so
@@ -415,9 +418,11 @@ func (g *DialerGroup) _select(networkType *dialer.NetworkType, state *dialerGrou
 			}
 		}
 		if best == nil {
-			// 冷啟動（健康檢查還沒跑完）或全組都不通時退化成第一條，行為等同 fixed(0)：
-			// 否則每次 dae 重啟／開機都會有一段「完全沒有出口」的黑窗，比固定的缺點更糟。
-			fallback := g.Dialers[0]
+			// 冷啟動（健康檢查還沒跑完）或全組都不通時退化成 fixed(0) 的做法，但**輪替**：
+			// 固定挑第一條的話，那條剛好不通時所有重試都會撞同一條死節點（實測重啟後
+			// 黑 15~20 秒才恢復）。輪替讓第 2、3 次重試自然踩到別的節點。
+			idx := int(g.coldStartCursor.Add(1)-1) % len(g.Dialers)
+			fallback := g.Dialers[idx]
 			selected := preferAlternateSelectionNetworkType(fallback, networkType)
 			return fallback, time.Hour, selected, nil
 		}
