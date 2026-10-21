@@ -32,6 +32,11 @@ const (
 	DialerSelectionPolicy_MinMovingAverageLatencies DialerSelectionPolicy = "min_moving_avg"
 	// DialerSelectionPolicy_MinLastLatency selects the dialer with minimum last latency.
 	DialerSelectionPolicy_MinLastLatency DialerSelectionPolicy = "min"
+	// DialerSelectionPolicy_UnifiedMin selects ONE dialer across both IP versions
+	// (so IPv4 and IPv6 traffic always leaves through the same node), using the
+	// minimum latency among the families in which each candidate is alive.
+	// Unlike fixed(N), it still respects health checks (failover works).
+	DialerSelectionPolicy_UnifiedMin DialerSelectionPolicy = "unified_min"
 )
 
 const (

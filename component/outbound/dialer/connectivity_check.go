@@ -294,6 +294,10 @@ func (d *Dialer) snapshotLatencyForPolicy(
 	case consts.DialerSelectionPolicy_MinMovingAverageLatencies:
 		rawLatency = collection.MovingAverage
 		hasLatency = rawLatency > 0
+	case consts.DialerSelectionPolicy_UnifiedMin:
+		// unified_min ranks dialers across both families by the same metric as
+		// "min" (last latency), so the two families agree on the winner.
+		rawLatency, hasLatency = collection.Latencies10.LastLatency()
 	}
 	d.collectionFineMu.RUnlock()
 

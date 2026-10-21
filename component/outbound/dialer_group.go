@@ -389,6 +389,41 @@ func (g *DialerGroup) _select(networkType *dialer.NetworkType, state *dialerGrou
 		selected := preferAlternateSelectionNetworkType(g.Dialers[policy.FixedIndex], networkType)
 		return g.Dialers[policy.FixedIndex], 0, selected, nil
 
+	case consts.DialerSelectionPolicy_UnifiedMin:
+		// Unified selection: pick ONE dialer across both IP versions so IPv4 and
+		// IPv6 traffic always egress through the same node (stable external IP),
+		// while still honouring health checks (unlike fixed(N), which ignores them).
+		//
+		// Take the union of the alive sets of both families and choose the dialer
+		// with the smallest latency among the families in which it is alive.
+		// The returned admission network type is the family where the chosen
+		// dialer was actually alive, so the dial itself uses a reachable family.
+		var best *dialer.Dialer
+		var bestLat time.Duration
+		var bestType dialer.NetworkType
+		otherVersion := (consts.IpVersion_X - networkType.IpVersion.ToIpVersionType()).ToIpVersionStr()
+		for _, fam := range []consts.IpVersionStr{networkType.IpVersion, otherVersion} {
+			nt := *networkType
+			nt.IpVersion = fam
+			candidateTypes, candidateCount := g.selectionNetworkTypes(&nt, policy)
+			for j := range candidateCount {
+				a := state.aliveDialerSets[candidateTypes[j].Index()]
+				d, latency := a.GetMinLatency(excluded)
+				if d != nil && (best == nil || latency < bestLat) {
+					best, bestLat, bestType = d, latency, candidateTypes[j]
+				}
+			}
+		}
+		if best == nil {
+			// 冷啟動（健康檢查還沒跑完）或全組都不通時退化成第一條，行為等同 fixed(0)：
+			// 否則每次 dae 重啟／開機都會有一段「完全沒有出口」的黑窗，比固定的缺點更糟。
+			fallback := g.Dialers[0]
+			selected := preferAlternateSelectionNetworkType(fallback, networkType)
+			return fallback, time.Hour, selected, nil
+		}
+		selected := preferAlternateSelectionNetworkType(best, &bestType)
+		return best, bestLat, selected, nil
+
 	case consts.DialerSelectionPolicy_MinLastLatency,
 		consts.DialerSelectionPolicy_MinAverage10Latencies,
 		consts.DialerSelectionPolicy_MinMovingAverageLatencies:
@@ -565,7 +600,8 @@ func policyRevalidatesAliveState(policy consts.DialerSelectionPolicy) bool {
 	switch policy {
 	case consts.DialerSelectionPolicy_MinLastLatency,
 		consts.DialerSelectionPolicy_MinAverage10Latencies,
-		consts.DialerSelectionPolicy_MinMovingAverageLatencies:
+		consts.DialerSelectionPolicy_MinMovingAverageLatencies,
+		consts.DialerSelectionPolicy_UnifiedMin:
 		return true
 	default:
 		return false
@@ -593,7 +629,8 @@ func policyNeedsAliveState(policy consts.DialerSelectionPolicy) bool {
 	case consts.DialerSelectionPolicy_Random,
 		consts.DialerSelectionPolicy_MinLastLatency,
 		consts.DialerSelectionPolicy_MinAverage10Latencies,
-		consts.DialerSelectionPolicy_MinMovingAverageLatencies:
+		consts.DialerSelectionPolicy_MinMovingAverageLatencies,
+		consts.DialerSelectionPolicy_UnifiedMin:
 		return true
 	case consts.DialerSelectionPolicy_Fixed:
 		return false

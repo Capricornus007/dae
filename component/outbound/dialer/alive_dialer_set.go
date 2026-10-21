@@ -333,6 +333,9 @@ func (a *AliveDialerSet) NotifyLatencyChange(dialer *Dialer, alive bool) {
 	case consts.DialerSelectionPolicy_MinMovingAverageLatencies:
 		rawLatency, hasLatency = dialer.snapshotLatencyForPolicy(a.CheckTyp, a.selectionPolicy)
 		minPolicy = true
+	case consts.DialerSelectionPolicy_UnifiedMin:
+		rawLatency, hasLatency = dialer.snapshotLatencyForPolicy(a.CheckTyp, a.selectionPolicy)
+		minPolicy = true
 	}
 
 	if alive {
@@ -670,7 +673,8 @@ func isMinLatencyPolicy(policy consts.DialerSelectionPolicy) bool {
 	switch policy {
 	case consts.DialerSelectionPolicy_MinLastLatency,
 		consts.DialerSelectionPolicy_MinAverage10Latencies,
-		consts.DialerSelectionPolicy_MinMovingAverageLatencies:
+		consts.DialerSelectionPolicy_MinMovingAverageLatencies,
+		consts.DialerSelectionPolicy_UnifiedMin:
 		return true
 	default:
 		return false
