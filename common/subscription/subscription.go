@@ -46,6 +46,22 @@ type sip008Server struct {
 
 var linkSchemeRE = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9+.\-]*$`)
 
+// doubledPortRE 抓「host:port:port」這種畸形 authority。實例（qwy2 訂閱，2026-10-21）：
+//
+//	anytls://249b…@s21c2c4a.edge.0443.me.uk:443:443/?type=tcp&…
+//
+// dae 照抄會變成 dial "host:443:443" → "too many colons in address"，整個節點被判不通。
+// 只有兩個埠相同時才修；不同代表我們不懂這份資料，原樣放行。
+var doubledPortRE = regexp.MustCompile(`^(?P<head>[A-Za-z][A-Za-z0-9+.\-]*://(?:[^@/?#]*@)?(?:\[[0-9A-Fa-f:.]+\]|[^:/?#]+)):(?P<a>[0-9]+):(?P<b>[0-9]+)(?P<tail>[/?#].*)?$`)
+
+func normalizeDoubledPortLink(link string) string {
+	m := doubledPortRE.FindStringSubmatch(link)
+	if m == nil || m[2] != m[3] {
+		return link
+	}
+	return m[1] + ":" + m[2] + m[4]
+}
+
 func ResolveSubscriptionAsBase64(log *logrus.Logger, b []byte) (nodes []string) {
 	log.Debugln("Try to resolve as base64")
 
@@ -72,7 +88,7 @@ func ResolveSubscriptionAsBase64(log *logrus.Logger, b []byte) (nodes []string) 
 		if !linkSchemeRE.MatchString(protocol) {
 			continue
 		}
-		nodes = append(nodes, line)
+		nodes = append(nodes, normalizeDoubledPortLink(line))
 	}
 	return nodes
 }

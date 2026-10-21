@@ -172,3 +172,53 @@ func TestResolveSubscriptionDispatchesClash(t *testing.T) {
 		t.Fatalf("want 6 nodes, got %d", len(nodes))
 	}
 }
+
+// 2026-10-21：qwy2 訂閱裡的 anytls 節點把埠寫在 server 裡又給了 port
+// （server: 's521c0d7.edge.0443.me.uk:443', port: 443），舊的 hostPort() 直接
+// JoinHostPort 會做出 host:443:443，dae 在 dial 時報 too many colons，整組節點被判不通。
+func TestResolveSubscriptionAsClashServerAlreadyHasPort(t *testing.T) {
+	const sample = `
+proxies:
+  - { name: n-port-in-server, type: anytls, server: 's521c0d7.edge.0443.me.uk:443', port: 443, password: p, sni: example.com }
+  - { name: n-ipv6-bracketed, type: anytls, server: '[2001:db8::1]', port: 8443, password: p, sni: example.com }
+`
+	nodes, err := ResolveSubscriptionAsClash(logrus.New(), []byte(sample))
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if len(nodes) != 2 {
+		t.Fatalf("want 2 nodes, got %d: %v", len(nodes), nodes)
+	}
+	for _, link := range nodes {
+		if strings.Contains(link, ":443:443") {
+			t.Errorf("埠被拼了兩次：%s", link)
+		}
+		if strings.Contains(link, "[[") {
+			t.Errorf("中括號被包了兩層：%s", link)
+		}
+		if _, _, err := D.NewNetproxyDialerFromLink(direct.SymmetricDirect, &D.ExtraOption{}, link); err != nil {
+			t.Errorf("dae 自己的解析器不吃這條：%v\nerr=%v", link, err)
+		}
+	}
+}
+
+// 2026-10-21：qwy2 訂閱（base64 形式）本身就吐畸形 authority：
+// anytls://…@s21c2c4a.edge.0443.me.uk:443:443/?…，dae 照抄會 dial "too many colons"。
+func TestResolveSubscriptionAsBase64FixesDoubledPort(t *testing.T) {
+	link := "anytls://pw@s21c2c4a.edge.0443.me.uk:443:443/?type=tcp&sni=example.com#n"
+	raw := base64.StdEncoding.EncodeToString([]byte(link + "\n"))
+	nodes := ResolveSubscriptionAsBase64(logrus.New(), []byte(raw))
+	if len(nodes) != 1 {
+		t.Fatalf("want 1 node, got %v", nodes)
+	}
+	if strings.Contains(nodes[0], ":443:443") {
+		t.Fatalf("埠還是被拼了兩次：%s", nodes[0])
+	}
+	if !strings.Contains(nodes[0], ".me.uk:443/?type=tcp") {
+		t.Fatalf("正規化結果不對：%s", nodes[0])
+	}
+	// 兩埠不同時不該動它（不懂的資料原樣放行）
+	if got := normalizeDoubledPortLink("ss://x@h:1:2/?a=b"); got != "ss://x@h:1:2/?a=b" {
+		t.Fatalf("不該改動未知格式：%s", got)
+	}
+}

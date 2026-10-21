@@ -107,8 +107,22 @@ func (p *nodeSpec) toDaeLink() (string, error) {
 }
 
 func (p *nodeSpec) hostPort() string {
+	// clash YAML 允許 server 自帶埠，實例（qwy2 訂閱，2026-10-21）：
+	//   server: 's21c2c4a.edge.0443.me.uk:443', port: 443
+	// 直接 JoinHostPort 會做出 "host:443:443"，outbound 那邊 dial 時報
+	// "too many colons in address"，整個節點被判不通。server 帶埠時以它為準。
+	host, port := p.Server, p.Port
+	if h, ps, err := net.SplitHostPort(p.Server); err == nil {
+		host = h
+		if n, convErr := strconv.Atoi(ps); convErr == nil && n > 0 {
+			port = n
+		}
+	} else if len(p.Server) > 2 && p.Server[0] == '[' && p.Server[len(p.Server)-1] == ']' {
+		// 已加中括號的裸 IPv6（[::1]）：拆掉再交給 JoinHostPort，否則會變 [[::1]]:443
+		host = p.Server[1 : len(p.Server)-1]
+	}
 	// IPv6 字面量一定要加中括號，否則 host:port 會歧義；net.JoinHostPort 已處理
-	return net.JoinHostPort(p.Server, strconv.Itoa(p.Port))
+	return net.JoinHostPort(host, strconv.Itoa(port))
 }
 
 // remark 放 URI 的 fragment（ss/vless/trojan/hy2/tuic 都是這個位置）。
