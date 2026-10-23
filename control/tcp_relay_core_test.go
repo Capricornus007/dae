@@ -52,9 +52,11 @@ func TestRelayIdleWatchdogReclaimsIdleRelay(t *testing.T) {
 	go func() { done <- rc.run(ctx) }()
 
 	select {
-	case <-done:
+	case err := <-done:
 		// run returned -> both directional copies were unblocked and the
-		// relay reclaimed.
+		// relay reclaimed. errcheck 要求把這顆 error 真的接住：idle watchdog
+		// 回收的路徑一定帶錯誤回來，記下來才能在「居然回 nil」時看得见。
+		t.Logf("idle relay reclaimed, run returned: %v", err)
 	case <-time.After(3 * time.Second):
 		t.Fatal("idle relay was not reclaimed by the watchdog")
 	}
@@ -126,8 +128,9 @@ func TestRelayIdleWatchdogCoexistsWithHalfClose(t *testing.T) {
 
 	// Both directions blocked; watchdog should reclaim after ~100ms.
 	select {
-	case <-done:
+	case err := <-done:
 		// Reclaimed promptly; the surfaced error (closed conn) is expected.
+		t.Logf("blocked relay reclaimed, run returned: %v", err)
 	case <-time.After(3 * time.Second):
 		t.Fatal("relay not reclaimed")
 	}
@@ -217,7 +220,8 @@ func TestRelayIdleWatchdogKeepsNudgingUntilReadsReturn(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- rc.run(context.Background()) }()
 	select {
-	case <-done:
+	case err := <-done:
+		t.Logf("nudging relay returned: %v", err)
 	case <-time.After(time.Second):
 		t.Fatal("idle cancellation stopped nudging before reads returned")
 	}
@@ -244,7 +248,8 @@ func TestRelayCancelNudgesFasterThanIdleCadence(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 	cancel()
 	select {
-	case <-done:
+	case err := <-done:
+		t.Logf("canceled relay returned: %v", err)
 	case <-time.After(time.Second):
 		t.Fatal("canceled relay kept the idle watchdog cadence")
 	}
@@ -271,9 +276,10 @@ func TestRelayWatchdogSurvivesCtxCancel(t *testing.T) {
 	cancel()
 
 	select {
-	case <-done:
+	case err := <-done:
 		// Success: the watchdog forceClosed, the delayed Reads eventually
 		// returned, and run() finished cleanly.
+		t.Logf("relay returned after cancel + delayed Read release: %v", err)
 	case <-time.After(5 * time.Second):
 		t.Fatal("relay leaked: run() did not return after ctx cancel + delayed Read release")
 	}
@@ -403,13 +409,14 @@ func TestRelayHalfCloseRefreshOutlivesPriorIdle(t *testing.T) {
 
 	// Past the original idle bound (150ms) but before half-close (110+80=190ms).
 	select {
-	case <-done:
-		t.Fatal("idle watchdog forceClosed during half-close drain")
+	case err := <-done:
+		t.Fatalf("idle watchdog forceClosed during half-close drain: %v", err)
 	case <-time.After(170 * time.Millisecond):
 	}
 
 	select {
-	case <-done:
+	case err := <-done:
+		t.Logf("half-close drain finished: %v", err)
 	case <-time.After(time.Second):
 		t.Fatal("half-close drain did not finish")
 	}
@@ -456,7 +463,8 @@ func TestRelayWatcherForceClosesOnParentCancel(t *testing.T) {
 	cancel()
 
 	select {
-	case <-done:
+	case err := <-done:
+		t.Logf("relay returned after parent ctx cancel: %v", err)
 	case <-time.After(3 * time.Second):
 		t.Fatal("relay did not return after parent ctx cancel")
 	}
