@@ -45,11 +45,11 @@ func New(dns *config.Dns, opt *NewOption) (s *Dns, err error) {
 		log: opt.Logger,
 	}
 	s.upstream2Index.Store((*Upstream)(nil), int(consts.DnsRequestOutboundIndex_AsIs))
-	// Parse upstream. upstreamName2Id is the shared namespace builder so the
+	// Parse upstream. UpstreamName2Id is the shared namespace builder so the
 	// validate path resolves upstream names against the same mapping (see
 	// ValidateRouting); the per-upstream format checks stay here, on the path
 	// that actually dials.
-	upstreamName2Id := upstreamName2Id(dns)
+	upstreamName2Id := UpstreamName2Id(dns)
 	for i, upstreamRaw := range dns.Upstream {
 		if i >= int(consts.DnsRequestOutboundIndex_UserDefinedMax) ||
 			i >= int(consts.DnsResponseOutboundIndex_UserDefinedMax) {
@@ -120,8 +120,10 @@ func New(dns *config.Dns, opt *NewOption) (s *Dns, err error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to build DNS response routing: %w", err)
 	}
-	if len(dns.Upstream) == 0 {
-		// Immediately ready.
+	if len(dns.Upstream) == 0 && opt.UpstreamReadyCallback != nil {
+		// Immediately ready. The callback is optional, and it may block until
+		// the caller finishes constructing the control plane, so it keeps
+		// running in its own goroutine.
 		go func() { _ = opt.UpstreamReadyCallback(nil) }()
 	}
 	return s, nil
@@ -187,8 +189,7 @@ func (s *Dns) ResponseSelect(ctx context.Context, msg *dnsmessage.Msg, fromUpstr
 	var qtype uint16
 	var ips []netip.Addr
 	if len(msg.Question) == 0 {
-		qname = ""
-		qtype = 0
+		return 0, nil, fmt.Errorf("DNS response without question section (rcode=%v, answers=%d)", msg.Rcode, len(msg.Answer))
 	} else {
 		q := msg.Question[0]
 		qname = q.Name

@@ -20,16 +20,17 @@ import (
 )
 
 const (
-	// udpWriteBatchMaxItems bounds the explicitly enabled experimental batch.
+	// udpWriteBatchMaxItems bounds the default-enabled batch.
 	// Direct-UDP sendmmsg showed no end-to-end throughput gain in real-kernel
 	// validation. Stream transports are a different story: anytls UDP-over-TLS
 	// measured socket writes 107,934 -> 11,141 (-90%) and daemon CPU -22.5%
 	// at 1Gbps/1200B (1.04M datagrams / 10s) with zero loss, because each
 	// per-datagram write otherwise costs its own TLS record burst + flush.
-	// Batching stays opt-in (1ms tail-latency budget, see udpWriteBatchWindow);
-	// latency-sensitive UDP workloads should keep it off.
+	// Batching is on by default; DAE_DISABLE_UDP_WRITE_BATCH=1 restores the
+	// unbatched path for latency-sensitive UDP workloads that cannot afford
+	// the aggregation window (1ms tail-latency budget, see udpWriteBatchWindow).
 	udpWriteBatchMaxItems = 32
-	// udpWriteBatchWindow is the opt-in batch's hard tail-latency budget.
+	// udpWriteBatchWindow is the batch's hard tail-latency budget.
 	udpWriteBatchWindow = time.Millisecond
 	// udpWriteBatchItemSize sizes the batch backing buffer (32 x MTU).
 	udpWriteBatchItemSize = consts.EthernetMtu
@@ -40,9 +41,13 @@ const (
 // direct synchronous write for that datagram.
 var errUDPWriteBatchOversized = stderrors.New("udp write batch: datagram too large")
 
-const udpWriteBatchOptInEnv = "DAE_ENABLE_UDP_WRITE_BATCH"
+// udpWriteBatchOptOutEnv restores the unbatched write path when set to "1".
+const udpWriteBatchOptOutEnv = "DAE_DISABLE_UDP_WRITE_BATCH"
 
-func udpWriteBatchOptedIn() bool { return os.Getenv(udpWriteBatchOptInEnv) == "1" }
+// udpWriteBatchEnabled reports whether UDP write batching is active. Batching
+// is the default; only the exact value DAE_DISABLE_UDP_WRITE_BATCH=1 disables
+// it, so ambiguous values keep the default.
+func udpWriteBatchEnabled() bool { return os.Getenv(udpWriteBatchOptOutEnv) != "1" }
 
 // udpWriteBatchAggregator accumulates datagrams for one UdpEndpoint and
 // flushes them through the transport's batched writer (sendmmsg on direct
@@ -91,7 +96,11 @@ func (a *udpWriteBatchAggregator) Append(data []byte, addr string) error {
 			a.mu.Unlock()
 			return net.ErrClosed
 		}
-		if len(a.items) >= udpWriteBatchMaxItems || (a.used+len(data) > len(a.buf) && len(a.buf) > 0) {
+		// Flush-on-overflow only when there is something to flush: after the
+		// flush empties the batch, a datagram that still cannot fit alone
+		// must fall through to the oversized rejection below instead of
+		// re-entering this branch forever (items>0 implies buf is allocated).
+		if len(a.items) >= udpWriteBatchMaxItems || (len(a.items) > 0 && a.used+len(data) > len(a.buf)) {
 			a.mu.Unlock()
 			a.flush()
 			continue

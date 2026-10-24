@@ -84,9 +84,9 @@ func buildTCPLinkLogFields(res *proxyDialResult, dialParam *proxyDialParam, dst 
 }
 
 // isOffloadGloballyDisabledReason checks if the offload reason is a globally
-// disabled reason (e.g., "eBPF offload disabled due to kernel bug").
+// disabled reason (e.g., "platform unsupported").
 func isOffloadGloballyDisabledReason(reason string) bool {
-	return reason == "eBPF offload disabled due to kernel bug" || reason == "platform unsupported"
+	return reason == "platform unsupported"
 }
 
 func retryRetrieveRoutingResult(ctx context.Context, retrieve func() (*bpfRoutingResult, error), attempts int, delay time.Duration) (*bpfRoutingResult, error) {
@@ -192,9 +192,11 @@ func (c *ControlPlane) handleConnWithRoutingResultOwned(
 	// DNS is a stateless protocol and doesn't need the connection tracking
 	// features that TCP relay provides. This optimization handles DNS queries
 	// directly through the DNS controller.
+	// A must_rules verdict skips the fast path: the flow is forwarded as plain
+	// TCP for the routing result's outbound instead.
 	// Uses bufio.Reader to peek at data without consuming it,
 	// allowing proper fallback if this isn't DNS traffic.
-	if dst.Port() == 53 {
+	if dst.Port() == 53 && dnsFastPathPermitted(routingResult) {
 		bufReader := bufio.NewReader(lConn)
 		handled, dnsErr := c.handleTCPDnsFastPathOwned(ctx, lConn, bufReader, src, dst, routingResult, ownership)
 		if handled {
@@ -208,63 +210,77 @@ func (c *ControlPlane) handleConnWithRoutingResultOwned(
 
 	var (
 		domain     string
+		sniffProto sniffing.SniffProtocol
 		lRelayConn netproxy.Conn = lConn
 	)
 	if c.shouldTryTcpSniff(dst, routingResult) {
-		cacheKey := newTcpSniffNegKey(dst, routingResult)
 		now := time.Now()
-		if c.shouldSkipTcpSniffByNegativeCache(cacheKey, now) {
-			if c.log.IsLevelEnabled(logrus.TraceLevel) {
-				c.log.WithFields(logrus.Fields{
-					"src": src.String(),
-					"dst": dst.String(),
-				}).Trace("Skip TCP sniffing by negative cache")
-			}
+		if consultDomain, ok := c.SniConsultDomain(routingResult, src, dst, now); ok {
+			// P2 consult adoption: a single fresh owner covers this IP and
+			// the terminal-outbound preview passed, so the cached domain
+			// stands in for the sniff. No prefetch and no sniffer wrapper:
+			// the relay reads lConn directly, exactly like a non-sniffed
+			// connection. TTL is deliberately not refreshed here; the
+			// sampling miss in the consult re-pays the real sniff.
+			domain = consultDomain
 		} else {
-			probeConn, prefetched, ready, probeErr := prefetchForTcpSniff(lConn, c.sniffingTimeout, tcpSniffPrefetchBytes)
-			if probeErr != nil {
-				return probeErr
-			}
-			switch {
-			case !ready:
-				// No early payload; treat as non-sniffable to avoid stalling server-first/established flows.
-				c.noteTcpSniffFailure(cacheKey, now)
-				lRelayConn = probeConn
-			case !isLikelyHttpOrTLSPrefix(prefetched):
-				// Fast reject for non HTTP/TLS prefixes.
-				c.noteTcpSniffFailure(cacheKey, now)
-				lRelayConn = probeConn
-			default:
-				// ConnSniffer should be used later, so we cannot close it now.
-				sniffer := sniffing.NewConnSniffer(probeConn, c.sniffingTimeout, c.log)
-				defer func() { _ = sniffer.Close() }()
-				lRelayConn = sniffer
-
-				domain, err = sniffer.SniffTcp()
-				if err != nil {
-					// Best practice:
-					// 1) Sniffing-domain errors (not applicable/need more/not found) should not break relay.
-					// 2) Ignorable connection errors (EOF/reset/timeout) should not break relay.
-					// 3) Other unexpected errors should fail fast instead of being silently hidden.
-					if !sniffing.IsSniffingError(err) && !daerrors.IsIgnorableConnectionError(err) {
-						return err
-					}
-					if !sniffing.IsSniffingError(err) {
-						if c.log.IsLevelEnabled(logrus.DebugLevel) {
-							c.log.WithError(err).WithFields(logrus.Fields{
-								"src": src.String(),
-								"dst": dst.String(),
-							}).Debug("TCP sniffing encountered ignorable connection error; continue relay")
-						}
-					}
-					// After repeated misses, temporarily suppress sniff attempts for the
-					// same flow signature so transient or unsupported traffic does not
-					// repeatedly pay the full sniffing cost.
+			cacheKey := newTcpSniffNegKey(dst, routingResult)
+			if c.shouldSkipTcpSniffByNegativeCache(cacheKey, now) {
+				if c.log.IsLevelEnabled(logrus.TraceLevel) {
+					c.log.WithFields(logrus.Fields{
+						"src": src.String(),
+						"dst": dst.String(),
+					}).Trace("Skip TCP sniffing by negative cache")
+				}
+			} else {
+				probeConn, prefetched, ready, probeErr := prefetchForTcpSniff(lConn, c.sniffingTimeout, tcpSniffPrefetchBytes)
+				if probeErr != nil {
+					return probeErr
+				}
+				switch {
+				case !ready:
+					// No early payload; treat as non-sniffable to avoid stalling server-first/established flows.
 					c.noteTcpSniffFailure(cacheKey, now)
-					domain = ""
-				} else {
-					// Any success means this flow signature is sniffable; clear suppression.
-					c.clearTcpSniffNegative(cacheKey)
+					lRelayConn = probeConn
+				case !isLikelyHttpOrTLSPrefix(prefetched):
+					// Fast reject for non HTTP/TLS prefixes.
+					c.noteTcpSniffFailure(cacheKey, now)
+					lRelayConn = probeConn
+				default:
+					// ConnSniffer should be used later, so we cannot close it now.
+					sniffer := sniffing.NewConnSniffer(probeConn, c.sniffingTimeout, c.log)
+					defer func() { _ = sniffer.Close() }()
+					lRelayConn = sniffer
+
+					domain, sniffProto, err = sniffer.SniffTcp()
+					if err != nil {
+						// Best practice:
+						// 1) Sniffing-domain errors (not applicable/need more/not found) should not break relay.
+						// 2) Ignorable connection errors (EOF/reset/timeout) should not break relay.
+						// 3) Other unexpected errors should fail fast instead of being silently hidden.
+						if !sniffing.IsSniffingError(err) && !daerrors.IsIgnorableConnectionError(err) {
+							return err
+						}
+						if !sniffing.IsSniffingError(err) {
+							if c.log.IsLevelEnabled(logrus.DebugLevel) {
+								c.log.WithError(err).WithFields(logrus.Fields{
+									"src": src.String(),
+									"dst": dst.String(),
+								}).Debug("TCP sniffing encountered ignorable connection error; continue relay")
+							}
+						}
+						// After repeated misses, temporarily suppress sniff attempts for the
+						// same flow signature so transient or unsupported traffic does not
+						// repeatedly pay the full sniffing cost.
+						c.noteTcpSniffFailure(cacheKey, now)
+						domain = ""
+					} else {
+						// Any success means this flow signature is sniffable; clear suppression.
+						c.clearTcpSniffNegative(cacheKey)
+						// Learn TLS sniffed domains into the kernel routing
+						// fallback (nil-safe when SNI learning is disabled).
+						c.sniLearning.LearnSniffed(dst.Addr(), domain, sniffProto)
+					}
 				}
 			}
 		}
@@ -444,19 +460,17 @@ func RelayTCPContextWithRecords(ctx context.Context, lConn, rConn netproxy.Conn,
 
 // TCP DNS Fast Path constants
 const (
-	// TCPDNSFirstReadTimeout is the timeout for reading the first DNS query
+	// tcpDNSFirstReadTimeout is the timeout for reading the first DNS query
 	// to determine if the connection is DNS traffic.
-	TCPDNSFirstReadTimeout = 5 * time.Second
-	// TCPDNSNextReadTimeout is the timeout for reading subsequent queries
+	tcpDNSFirstReadTimeout = 5 * time.Second
+	// tcpDNSNextReadTimeout is the timeout for reading subsequent queries
 	// on an established DNS-over-TCP connection.
-	TCPDNSNextReadTimeout = 60 * time.Second
-	// TCPDNSWriteTimeout bounds a DNS-over-TCP response write. Without it,
+	tcpDNSNextReadTimeout = 60 * time.Second
+	// tcpDNSWriteTimeout bounds a DNS-over-TCP response write. Without it,
 	// a client that fills the kernel send buffer and then stops reading
 	// while holding the connection open blocks Write forever, pinning the
 	// fastpath goroutine, its fd, and the adopted SessionManager entry.
-	TCPDNSWriteTimeout = 10 * time.Second
-	// TCPDNSMaxMessageSize is the maximum allowed DNS message size (64KB).
-	TCPDNSMaxMessageSize = 65535
+	tcpDNSWriteTimeout = 10 * time.Second
 )
 
 // tcpDnsBufPool is a pool for TCP DNS response buffers.
@@ -490,7 +504,7 @@ func (w *tcpDnsResponseWriter) RemoteAddr() net.Addr {
 // write performs one deadline-bounded frame write on the underlying
 // connection and records the traffic on success.
 func (w *tcpDnsResponseWriter) write(buf []byte) (int, error) {
-	_ = w.conn.SetWriteDeadline(time.Now().Add(TCPDNSWriteTimeout))
+	_ = w.conn.SetWriteDeadline(time.Now().Add(tcpDNSWriteTimeout))
 	n, err := w.conn.Write(buf)
 	_ = w.conn.SetWriteDeadline(time.Time{})
 	if n > 0 {
@@ -504,25 +518,8 @@ func (w *tcpDnsResponseWriter) WriteMsg(m *dnsmessage.Msg) error {
 	if err != nil {
 		return err
 	}
-	// DNS-over-TCP requires a 2-byte length prefix
-	totalLen := 2 + len(data)
-
-	// Use buffer pool for small messages
-	if totalLen <= 1026 {
-		bufPtr := tcpDnsBufPool.Get().(*[]byte)
-		defer tcpDnsBufPool.Put(bufPtr)
-		buf := (*bufPtr)[:totalLen]
-		binary.BigEndian.PutUint16(buf[:2], uint16(len(data)))
-		copy(buf[2:], data)
-		_, err = w.write(buf)
-		return err
-	}
-
-	// Fallback for large messages
-	buf := make([]byte, totalLen)
-	binary.BigEndian.PutUint16(buf[:2], uint16(len(data)))
-	copy(buf[2:], data)
-	_, err = w.write(buf)
+	// Write adds the 2-byte length prefix DNS-over-TCP requires.
+	_, err = w.Write(data)
 	return err
 }
 
@@ -561,7 +558,8 @@ func (w *tcpDnsResponseWriter) TsigTimersOnly(bool) {}
 func (w *tcpDnsResponseWriter) Hijack() {}
 
 // readDnsMsgFromBufio reads a single DNS message from a buffered reader.
-// DNS-over-TCP messages are prefixed with a 2-byte length field.
+// DNS-over-TCP messages are prefixed with a 2-byte length field, which caps
+// any frame at 65535 bytes by construction.
 // Returns the message, framed byte length, or error.
 //
 // With consumeLarge=false nothing is consumed on failure, which is what the
@@ -584,10 +582,6 @@ func readDnsMsgFromBufio(reader *bufio.Reader, timeout time.Duration, conn net.C
 	}
 	length := binary.BigEndian.Uint16(lenBuf)
 
-	// Validate message size
-	if length > TCPDNSMaxMessageSize {
-		return nil, 0, fmt.Errorf("DNS message too large: %d bytes (max %d)", length, TCPDNSMaxMessageSize)
-	}
 	if length < 12 {
 		return nil, 0, fmt.Errorf("DNS message too small: %d bytes (min 12)", length)
 	}
@@ -745,7 +739,7 @@ func (c *ControlPlane) handleTCPDnsFastPathOwned(
 	ownership *incomingConnectionLease,
 ) (handled bool, err error) {
 	// Try to read the first DNS query to verify this is actually DNS traffic
-	msg, frameLen, err := readDnsMsgFromBufio(bufReader, TCPDNSFirstReadTimeout, lConn, false)
+	msg, frameLen, err := readDnsMsgFromBufio(bufReader, tcpDNSFirstReadTimeout, lConn, false)
 	if err != nil {
 		// Not a valid DNS query - not DNS traffic, fall through to normal TCP handling
 		// The bufio.Reader has buffered but not consumed the data, so the caller
@@ -855,7 +849,7 @@ func (c *ControlPlane) handleTCPDnsFastPathOwned(
 		}
 
 		// Try to read next query
-		msg, frameLen, err = readDnsMsgFromBufio(bufReader, TCPDNSNextReadTimeout, lConn, true)
+		msg, frameLen, err = readDnsMsgFromBufio(bufReader, tcpDNSNextReadTimeout, lConn, true)
 		if err != nil {
 			// Connection closed or timeout - normal termination
 			if daerrors.IsIgnorableConnectionError(err) || err == io.EOF {

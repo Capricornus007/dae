@@ -18,23 +18,26 @@ import (
 	"github.com/daeuniverse/outbound/netproxy"
 )
 
-// batchRecorder implements PacketConn + PacketBatchWriter and records every
-// batch (with deep-copied payloads so reuse of the aggregator buffer is safe).
-func TestUDPWriteBatchRequiresExplicitOptIn(t *testing.T) {
-	t.Setenv(udpWriteBatchOptInEnv, "")
-	if udpWriteBatchOptedIn() {
-		t.Fatal("batching enabled without explicit opt-in")
+// TestUDPWriteBatchDisabledByEnv: batching is on by default and only the exact
+// value DAE_DISABLE_UDP_WRITE_BATCH=1 turns it off; an ambiguous value keeps
+// the default rather than silently unbatching.
+func TestUDPWriteBatchDisabledByEnv(t *testing.T) {
+	t.Setenv(udpWriteBatchOptOutEnv, "")
+	if !udpWriteBatchEnabled() {
+		t.Fatal("batching must be enabled by default")
 	}
-	t.Setenv(udpWriteBatchOptInEnv, "1")
-	if !udpWriteBatchOptedIn() {
-		t.Fatal("batching disabled with explicit opt-in")
+	t.Setenv(udpWriteBatchOptOutEnv, "1")
+	if udpWriteBatchEnabled() {
+		t.Fatal("batching must be disabled by the opt-out env")
 	}
-	t.Setenv(udpWriteBatchOptInEnv, "true")
-	if udpWriteBatchOptedIn() {
-		t.Fatal("ambiguous opt-in value enabled batching")
+	t.Setenv(udpWriteBatchOptOutEnv, "true")
+	if !udpWriteBatchEnabled() {
+		t.Fatal("ambiguous opt-out value must not disable batching")
 	}
 }
 
+// batchRecorder implements PacketConn + PacketBatchWriter and records every
+// batch (with deep-copied payloads so reuse of the aggregator buffer is safe).
 type batchRecorder struct {
 	mu      sync.Mutex
 	batches [][]netproxy.BatchItem
@@ -215,6 +218,44 @@ func TestAggregatorOversized(t *testing.T) {
 	}
 	if rec.batchCount() != 1 || len(rec.batch(0)) != 1 {
 		t.Fatal("expected single-item batch after oversized fallback")
+	}
+}
+
+// TestAggregatorOversizedAfterUse: a datagram larger than the whole backing
+// buffer arriving after the buffer already holds pending items must fall back
+// with errUDPWriteBatchOversized instead of livelocking flush-retry (the old
+// overflow branch kept re-triggering on the emptied batch forever).
+func TestAggregatorOversizedAfterUse(t *testing.T) {
+	rec := &batchRecorder{}
+	ue := newBatchTestEndpoint(rec)
+	agg := newUDPWriteBatchAggregator(ue)
+
+	if err := agg.Append([]byte("pending"), "10.0.0.1:53"); err != nil {
+		t.Fatalf("Append pending: %v", err)
+	}
+	type appendResult struct {
+		err error
+	}
+	res := make(chan appendResult, 1)
+	big := make([]byte, udpWriteBatchMaxItems*udpWriteBatchItemSize+1)
+	go func() {
+		res <- appendResult{agg.Append(big, "10.0.0.1:53")}
+	}()
+	select {
+	case r := <-res:
+		if !errors.Is(r.err, errUDPWriteBatchOversized) {
+			t.Fatalf("expected errUDPWriteBatchOversized, got %v", r.err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Append livelocked: oversized datagram after prior use never returned")
+	}
+	// The earlier pending item must survive the overflow flush and land intact.
+	deadline := time.Now().Add(2 * time.Second)
+	for rec.batchCount() < 1 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if rec.batchCount() != 1 || len(rec.batch(0)) != 1 || string(rec.batch(0)[0].Data) != "pending" {
+		t.Fatal("pending item lost across the oversized fallback")
 	}
 }
 

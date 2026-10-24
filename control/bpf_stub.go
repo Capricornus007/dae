@@ -233,6 +233,7 @@ type bpfMapSpecs struct {
 	RoutingHandoffMap        *ebpf.MapSpec `ebpf:"routing_handoff_map"`
 	RoutingMap               *ebpf.MapSpec `ebpf:"routing_map"`
 	RoutingMetaMap           *ebpf.MapSpec `ebpf:"routing_meta_map"`
+	SniRoutingMap            *ebpf.MapSpec `ebpf:"sni_routing_map"`
 	ConnStateMap             *ebpf.MapSpec `ebpf:"conn_state_map"`
 	UnusedLpmType            *ebpf.MapSpec `ebpf:"unused_lpm_type"`
 	WanEgressRouteScratchMap *ebpf.MapSpec `ebpf:"wan_egress_route_scratch_map"`
@@ -277,6 +278,7 @@ type bpfMaps struct {
 	RoutingHandoffMap        *ebpf.Map `ebpf:"routing_handoff_map"`
 	RoutingMap               *ebpf.Map `ebpf:"routing_map"`
 	RoutingMetaMap           *ebpf.Map `ebpf:"routing_meta_map"`
+	SniRoutingMap            *ebpf.Map `ebpf:"sni_routing_map"`
 	ConnStateMap             *ebpf.Map `ebpf:"conn_state_map"`
 	UnusedLpmType            *ebpf.Map `ebpf:"unused_lpm_type"`
 	WanEgressRouteScratchMap *ebpf.Map `ebpf:"wan_egress_route_scratch_map"`
@@ -305,6 +307,7 @@ func (m *bpfMaps) Close() error {
 		m.RoutingHandoffMap,
 		m.RoutingMap,
 		m.RoutingMetaMap,
+		m.SniRoutingMap,
 		m.ConnStateMap,
 		m.UnusedLpmType,
 		m.WanEgressRouteScratchMap,
@@ -407,10 +410,10 @@ type loadBpfOptions struct {
 }
 
 const (
-	defaultConnStateMapMaxEntries = 65536 * 4
+	defaultConnStateMapMaxEntries = 65536
 	// Mirrors MAX_REDIRECT_TRACK_NUM in kern/tproxy.c; see bpf_utils.go for
 	// the single-owner contract with tuneRedirectTrackMap.
-	defaultRedirectTrackMapMaxEntries = 65536
+	defaultRedirectTrackMapMaxEntries = 16384
 )
 
 func fullLoadBpfObjects(

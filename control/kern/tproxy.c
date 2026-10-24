@@ -74,8 +74,22 @@
 #define ROUTING_EPOCH_SLOT_RESULT_MASK 0x3
 #define MAX_LPM_SIZE 2048000
 #define MAX_LPM_NUM (ROUTING_EPOCH_SLOT_NUM * MAX_MATCH_SET_LEN + 8)
-#define MAX_CONN_STATE_NUM (65536 * 4)
-#define MAX_REDIRECT_TRACK_NUM 65536
+// Sizing of the BPF_F_NO_PREALLOC hash maps below follows the measured cost
+// model: the kernel charges max_entries * 16 B for the bucket array at load
+// time regardless of use, while live entries cost ~145 B each on top. Sized
+// against a home/SMB gateway workload (concurrent live entries measured over
+// hours: conn_state ~10^2, redirect_track ~10^2, routing_handoff ~10^1,
+// cookie_pid ~10^1, domain_routing ~0), with >=250x headroom kept on every
+// map. A full map never drops traffic: conn_state and redirect_track count the
+// rejection in bpf_stats_map (userspace reports it, and conn_state overflow
+// also drives janitor pressure mode), while routing_handoff and cookie_pid
+// fall back to their slow path with no counter of their own, so for those two
+// the janitor's >90% capacity warning is the only signal that the map is too
+// small. The macros below are the clang-side defaults: at load, userspace sets
+// conn_state_map from bpf_conn_state_map_size, and a same-port reload keeps
+// the inherited live map, so the runtime capacity need not match the macro.
+#define MAX_CONN_STATE_NUM 65536
+#define MAX_REDIRECT_TRACK_NUM 16384
 // A reply binding (redirect_track entry) may only be rebound by a different
 // publisher (interface/MAC) once it has been silent for this long. The window
 // must be long enough that a roaming LAN client's gap (Wi-Fi roam, VM
@@ -83,9 +97,15 @@
 // writer cannot hand a live flow's reply path to itself. Userspace injects
 // EVENT_RATE.redirect_rebind_stale_ns; this is the clang-side fallback.
 #define REDIRECT_REBIND_STALE_NS_FALLBACK 2000000000ULL
-#define MAX_ROUTING_HANDOFF_NUM 65536
-#define MAX_COOKIE_PID_PNAME_MAPPING_NUM 65536
-#define MAX_DOMAIN_ROUTING_NUM 65536
+#define MAX_ROUTING_HANDOFF_NUM 16384
+#define MAX_COOKIE_PID_PNAME_MAPPING_NUM 16384
+#define MAX_DOMAIN_ROUTING_NUM 8192
+// MAX_SNI_ROUTING_NUM bounds the sniffed-domain learning fallback map. Unlike
+// domain_routing_map it is an LRU map, so this is a memory budget rather than
+// a hard limit: eviction silently drops one learned IP whose next connection
+// simply re-sniffs. Keep in sync with MaxSniRoutingNum in
+// common/consts/ebpf.go.
+#define MAX_SNI_ROUTING_NUM 4096
 // MAX_TCP_OFFLOAD_NUM bounds concurrent TCP relay offload sessions. Each
 // session occupies two fast_sock entries (one per direction).
 #define MAX_TCP_OFFLOAD_NUM 16384
@@ -393,6 +413,19 @@ struct {
 	__type(value, struct domain_routing);
 	__uint(max_entries, ROUTING_EPOCH_SLOT_NUM * MAX_DOMAIN_ROUTING_NUM);
 } domain_routing_map SEC(".maps");
+
+// sni_routing_map: epoch+address → routing bitmap learned from sniffed TLS
+// ClientHello SNIs. Userspace writes it after a successful sniff; the routing
+// program consults it only where domain_routing_map (DNS projection) misses,
+// so DNS knowledge stays strictly authoritative. LRU keeps capacity a budget:
+// eviction never fails the writer, and the userspace tracker owns TTL
+// semantics (owners expire from a janitor, not from this map).
+struct {
+	__uint(type, BPF_MAP_TYPE_LRU_HASH);
+	__type(key, struct routing_epoch_ip);
+	__type(value, struct domain_routing);
+	__uint(max_entries, ROUTING_EPOCH_SLOT_NUM * MAX_SNI_ROUTING_NUM);
+} sni_routing_map SEC(".maps");
 
 struct ip_port_proto {
 	__u32 ip[4];
@@ -1691,6 +1724,13 @@ static __always_inline int route_match_domain_set(struct route_ctx *ctx,
 		__builtin_memcpy(daddr.addr, ctx->lpm_key_daddr.data,
 				 sizeof(daddr.addr));
 		domain_routing = bpf_map_lookup_elem(&domain_routing_map, &daddr);
+		if (!domain_routing) {
+			// DNS projection (authoritative) missed; fall back to the
+			// sniffed-domain knowledge before declaring the word empty.
+			// Both lookups share the per-word cache below.
+			domain_routing = bpf_map_lookup_elem(&sni_routing_map,
+							     &daddr);
+		}
 		ctx->domain_word_idx = bitmap_word_idx;
 		if (domain_routing)
 			ctx->domain_word_bits =
@@ -3307,10 +3347,10 @@ tproxy_wan_ingress_role(struct __sk_buff *skb, __u32 link_h_len,
 
 		copy_reversed_tuples(&pkt->tuples.five, &reversed_tuples_key);
 		/* Observability only: an unsolicited WAN-ingress UDP flow would
-		 * otherwise create conn_state from the outside (262144 entries
-		 * over a 300s TTL is only ~874 new flows per second). Rejecting
-		 * it would also drop the is_wan_ingress_direction marker that the
-		 * wan_egress pass-through depends on (host-terminated UDP
+		 * otherwise create conn_state from the outside (MAX_CONN_STATE_NUM
+		 * entries over a 300s TTL is only ~218 new flows per second).
+		 * Rejecting it would also drop the is_wan_ingress_direction marker
+		 * that the wan_egress pass-through depends on (host-terminated UDP
 		 * services), so this is counted, not enforced. See fix-plan.md
 		 * decision A20. */
 		mark_udp_seen_with_status(&reversed_tuples_key, true,

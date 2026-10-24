@@ -274,6 +274,29 @@ func (c *DnsController) reportDnsTruncationSummary() {
 	c.log.WithFields(fields).Info("DNS truncation (TC=1) answers were upgraded to TCP")
 }
 
+// reportDnsEvidenceSummary publishes the DNS transactional evidence
+// eviction trend: interval delta plus the lifetime total, silent on an idle
+// interval. The per-eviction Info line answers "which node, which ring"; this
+// answers the calibration question — steady single-digit intervals mean
+// chronically bad nodes being contained, a continuous high churn means either
+// a flaky fleet or window constants tuned too aggressively for this
+// network's query mix. It follows the same visibility pattern as the
+// truncation and dropped-datagram summaries.
+func (c *DnsController) reportDnsEvidenceSummary() {
+	if c == nil || c.log == nil {
+		return
+	}
+	total := dialer.DnsEvidenceEvictions()
+	interval := total - c.lastReportedEvidenceEvictions.Swap(total)
+	if interval == 0 {
+		return
+	}
+	c.log.WithFields(logrus.Fields{
+		"evictions":       interval,
+		"evictions_total": total,
+	}).Info("DNS transactional evidence evictions in this interval")
+}
+
 // reportDnsDroppedDatagramSummary publishes the dropped-datagram counters to
 // the operator, following the same janitor pattern as
 // reportDnsTruncationSummary: one line per interval that saw activity as an
@@ -322,16 +345,8 @@ func (c *DnsController) reportDnsDroppedDatagramSummary() {
 }
 
 func (c *DnsController) allowDnsTruncatedLog(now time.Time) bool {
-	nowNano := now.UnixNano()
-	for {
-		last := c.lastDnsTruncatedLogTime.Load()
-		if nowNano-last < int64(dnsTruncatedFallbackLogInterval) {
-			return false
-		}
-		if c.lastDnsTruncatedLogTime.CompareAndSwap(last, nowNano) {
-			return true
-		}
-	}
+	_, emit := c.dnsTruncatedLogAlert.observe(now, dnsTruncatedFallbackLogInterval)
+	return emit
 }
 
 // noteDnsTruncatedReplyToClient records a TC=1 answer handed back to a client
@@ -735,6 +750,12 @@ func (c *DnsController) resolveDNSUpstream(
 	respMsg, usedDialArg, err = c.forwardWithFallback(ctx, req, upstream, dialArg, data, isAsIs)
 	if err != nil {
 		return nil, err
+	}
+	// DNSPod omits the question on some terminal errors. Inherit this request's
+	// question only for the shape questionlessTerminalReply allows, so the echo
+	// check below still rejects every reply that could carry another query's data.
+	if questionlessTerminalReply(respMsg) && reqQuestion.Name != "" {
+		respMsg.Question = []dnsmessage.Question{reqQuestion}
 	}
 	if reqQuestion.Name != "" && !questionEchoMatches(reqQuestion, respMsg) {
 		return nil, fmt.Errorf("upstream %v reply does not echo the request question (possible spoofing or upstream cross-talk); dropped", upstreamName)

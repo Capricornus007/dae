@@ -13,19 +13,21 @@ import (
 )
 
 func borrowedUdpTestTypes() (dns, data *NetworkType) {
-	return &NetworkType{
+	dns = &NetworkType{
 		L4Proto:         consts.L4ProtoStr_UDP,
 		IpVersion:       consts.IpVersionStr_4,
 		IsDns:           true,
 		UdpHealthDomain: UdpHealthDomainDns,
-	}, &NetworkType{
+	}
+	data = &NetworkType{
 		L4Proto:         consts.L4ProtoStr_UDP,
 		IpVersion:       consts.IpVersionStr_4,
 		UdpHealthDomain: UdpHealthDomainData,
 	}
+	return dns, data
 }
 
-// TestDnsUdpMarkNotifiesBorrowingDataUdpSet is a regression guard: the
+// TestDnsUdpMarkNotifiesBorrowingDataUdpSet is the P2-28 regression: the
 // data-UDP health domain borrows the DNS domain's latency, but it was only ever
 // notified while it was still dead (ReportAvailableTraffic gates on
 // !MustGetAlive), so its borrowed sorting latency froze at the value captured
@@ -66,8 +68,8 @@ func TestDnsUdpMarkNotifiesBorrowingDataUdpSet(t *testing.T) {
 	}
 }
 
-// TestDnsUdpFanOutUsesDataUdpAliveState pins the other second half: the
-// borrowed alive flag must be the data-UDP domain's OWN Alive.Load. Using the
+// TestDnsUdpFanOutUsesDataUdpAliveState pins the other half of P2-28: the
+// borrowed alive flag must be the data-UDP domain's OWN Alive.Load(). Using the
 // DNS domain's value (true here) would silently keep a dead data-UDP domain
 // alive in the selection sets.
 func TestDnsUdpFanOutUsesDataUdpAliveState(t *testing.T) {

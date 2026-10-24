@@ -44,11 +44,18 @@ func shouldTryRawUDPFallback(err error, from, realTo netip.AddrPort) bool {
 	if stderrors.Is(err, unix.EADDRINUSE) || stderrors.Is(err, unix.EADDRNOTAVAIL) {
 		return true
 	}
+	// EINVAL is what the kernel returns when the bind address cannot be used as
+	// a source for this destination, e.g. a loopback bind address writing to a
+	// non-loopback client. That is exactly the case this fallback exists for.
+	if stderrors.Is(err, unix.EINVAL) {
+		return true
+	}
 	// Some net stack paths wrap errno and lose Is(err, errno) matching.
 	// Match common bind/send failures conservatively.
 	errStr := strings.ToLower(err.Error())
 	return strings.Contains(errStr, "address already in use") ||
-		strings.Contains(errStr, "cannot assign requested address")
+		strings.Contains(errStr, "cannot assign requested address") ||
+		strings.Contains(errStr, "sendto: invalid argument")
 }
 
 func tryRawUDPFallback(log *logrus.Logger, data []byte, from, realTo netip.AddrPort, soMark uint32, debugEnabled, errorEnabled bool, reason string, err error) bool {
@@ -182,16 +189,8 @@ func (c *ControlPlane) checkUdpEndpointHealth(ue *UdpEndpoint, isFastPath bool) 
 }
 
 func (c *ControlPlane) allowConnectionErrorLog(now time.Time) bool {
-	nowNano := now.UnixNano()
-	for {
-		last := c.lastConnectionErrorLogTime.Load()
-		if nowNano-last < int64(connectionErrorLogInterval) {
-			return false
-		}
-		if c.lastConnectionErrorLogTime.CompareAndSwap(last, nowNano) {
-			return true
-		}
-	}
+	_, emit := c.connectionErrorLogAlert.observe(now, connectionErrorLogInterval)
+	return emit
 }
 
 type DialOption struct {
@@ -207,6 +206,15 @@ type DialOption struct {
 	// NowNano is an optional pre-calculated timestamp to avoid calling time.Now()
 	// in the hot path. If 0, time.Now() will be used.
 	NowNano int64
+}
+
+// dnsFastPathPermitted reports whether port-53 traffic may be absorbed into
+// the DNS controller. A must_rules verdict (Must > 0) reserves the flow for
+// the routing result's outbound: the kernel already decided, and userspace
+// must forward the flow as plain traffic, matching the pre-fast-path
+// semantics where Must forces isDns=false.
+func dnsFastPathPermitted(routingResult *bpfRoutingResult) bool {
+	return routingResult == nil || routingResult.Must == 0
 }
 
 func ChooseNatTimeout(data []byte, sniffDns bool) (dmsg *dnsmessage.Msg, timeout time.Duration) {
@@ -291,6 +299,61 @@ func swapPinnedAnyfrom(slot **Anyfrom, next *Anyfrom) {
 	}
 }
 
+// tryCachedResponseConn sends data through a cached response socket and
+// reports whether the cached socket delivered the packet. get fetches the
+// cached connection and clear evicts it once its mark no longer matches the
+// reply's mark or the write fails; the two caches (the per-session slot and
+// the per-bind-address cache) differ only in those accessors and in the
+// cache_kind log tag.
+func tryCachedResponseConn(
+	log *logrus.Logger,
+	data []byte,
+	realTo, writeAddr netip.AddrPort,
+	soMark uint32,
+	traceEnabled, debugEnabled bool,
+	cacheKind string,
+	get func() *Anyfrom,
+	clear func(cached *Anyfrom),
+) bool {
+	cached := get()
+	if cached == nil {
+		return false
+	}
+	if cached.soMark != soMark {
+		clear(cached)
+		if debugEnabled {
+			log.WithFields(logrus.Fields{
+				"cache_kind":  cacheKind,
+				"cached_mark": cached.soMark,
+				"reply_mark":  soMark,
+			}).Debug("sendPkt: discarded cached socket with mismatched mark")
+		}
+		return false
+	}
+	_, err := cached.WriteToUDPAddrPort(data, writeAddr)
+	if err == nil {
+		if traceEnabled {
+			log.WithFields(logrus.Fields{
+				"to":         realTo.String(),
+				"write_addr": writeAddr.String(),
+				"cached":     true,
+				"cache_kind": cacheKind,
+			}).Trace("sendPkt: sent via cached socket")
+		}
+		return true
+	}
+	// Cached socket is stale or broken; clear the cache entry immediately so
+	// the next call doesn't waste time retrying a dead socket.
+	clear(cached)
+	if debugEnabled {
+		log.WithFields(logrus.Fields{
+			"cache_kind": cacheKind,
+			"error":      err.Error(),
+		}).Debug("sendPkt: cached socket failed, getting new socket from pool")
+	}
+	return false
+}
+
 func sendPktWithResponseConnSlot(log *logrus.Logger, data []byte, from netip.AddrPort, realTo netip.AddrPort, soMark uint32, slot udpEndpointResponseConnSlot, cache udpEndpointResponseConnCache) (err error) {
 	// Proxy chain support: Use original 'from' address as bindAddr to ensure
 	// each server response gets its own UDP socket. This prevents response mixing
@@ -315,71 +378,16 @@ func sendPktWithResponseConnSlot(log *logrus.Logger, data []byte, from netip.Add
 	}
 
 	// Try cached socket first (for Symmetric NAT sessions)
-	if slot != nil {
-		if cached := slot.Load(); cached != nil {
-			if cached.soMark != soMark {
-				slot.CompareAndSwap(cached, nil)
-				if debugEnabled {
-					log.WithFields(logrus.Fields{
-						"cached_mark": cached.soMark,
-						"reply_mark":  soMark,
-					}).Debug("sendPkt: discarded cached socket with mismatched mark")
-				}
-			} else {
-				if _, err = cached.WriteToUDPAddrPort(data, writeAddr); err == nil {
-					if traceEnabled {
-						log.WithFields(logrus.Fields{
-							"to":         realTo.String(),
-							"write_addr": writeAddr.String(),
-							"cached":     true,
-						}).Trace("sendPkt: sent via cached socket")
-					}
-					return nil
-				}
-				// Cached socket is stale or broken; clear the cache slot immediately
-				// so the next call doesn't waste time retrying a dead socket.
-				slot.CompareAndSwap(cached, nil)
-				if debugEnabled {
-					log.WithFields(logrus.Fields{
-						"error": err.Error(),
-					}).Debug("sendPkt: cached socket failed, getting new socket from pool")
-				}
-			}
-		}
+	if slot != nil && tryCachedResponseConn(log, data, realTo, writeAddr, soMark, traceEnabled, debugEnabled, "slot",
+		func() *Anyfrom { return slot.Load() },
+		func(cached *Anyfrom) { slot.CompareAndSwap(cached, nil) }) {
+		return nil
 	}
 
-	if cache != nil {
-		if cached := cache.CachedResponseConn(bindAddr); cached != nil {
-			if cached.soMark != soMark {
-				cache.ClearCachedResponseConn(bindAddr, cached)
-				if debugEnabled {
-					log.WithFields(logrus.Fields{
-						"bind_addr":   bindAddr.String(),
-						"cached_mark": cached.soMark,
-						"reply_mark":  soMark,
-					}).Debug("sendPkt: discarded bind-address cached socket with mismatched mark")
-				}
-			} else {
-				if _, err = cached.WriteToUDPAddrPort(data, writeAddr); err == nil {
-					if traceEnabled {
-						log.WithFields(logrus.Fields{
-							"to":         realTo.String(),
-							"write_addr": writeAddr.String(),
-							"cached":     true,
-							"cache_kind": "bind_addr",
-						}).Trace("sendPkt: sent via bind-address cached socket")
-					}
-					return nil
-				}
-				cache.ClearCachedResponseConn(bindAddr, cached)
-				if debugEnabled {
-					log.WithFields(logrus.Fields{
-						"bind_addr": bindAddr.String(),
-						"error":     err.Error(),
-					}).Debug("sendPkt: bind-address cached socket failed, getting new socket from pool")
-				}
-			}
-		}
+	if cache != nil && tryCachedResponseConn(log, data, realTo, writeAddr, soMark, traceEnabled, debugEnabled, "bind_addr",
+		func() *Anyfrom { return cache.CachedResponseConn(bindAddr) },
+		func(cached *Anyfrom) { cache.ClearCachedResponseConn(bindAddr, cached) }) {
+		return nil
 	}
 
 	uConn, isNew, err := DefaultAnyfromPool.getOrCreateWithMark(bindAddr, soMark)
@@ -414,6 +422,7 @@ func sendPktWithResponseConnSlot(log *logrus.Logger, data []byte, from netip.Add
 		}
 		if errorEnabled {
 			log.WithFields(logrus.Fields{
+				"bind_addr":  bindAddr.String(),
 				"write_addr": writeAddr.String(),
 				"data_size":  len(data),
 				"error":      err.Error(),
@@ -450,8 +459,26 @@ func sendPktWithResponseConnSlot(log *logrus.Logger, data []byte, from netip.Add
 //
 // udpReplyReinjectionDrops counts reply packets dropped by local reinjection
 // failures. Dropping is deliberate (the endpoint stays alive to avoid rebuild
-// storms), but the drop rate is otherwise invisible to operators.
+// storms), and noteUdpReplyReinjectionDrop surfaces the running count through
+// a power-of-two paced Debug line so a sustained drop rate stays visible to
+// operators.
 var udpReplyReinjectionDrops atomic.Uint64
+
+// noteUdpReplyReinjectionDrop counts one dropped reply and reports it at a
+// power-of-two pace (first and 2^n-th occurrence), carrying the running drop
+// count: a per-drop Debug line cannot show a drop rate, and silence cannot
+// show that the condition never cleared.
+func noteUdpReplyReinjectionDrop(log *logrus.Logger, err error, from, clientAddr netip.AddrPort, dataLen int) {
+	count := udpReplyReinjectionDrops.Add(1)
+	if log != nil && log.IsLevelEnabled(logrus.DebugLevel) && count&(count-1) == 0 {
+		log.WithError(err).WithFields(logrus.Fields{
+			"from":      from.String(),
+			"to":        clientAddr.String(),
+			"data_size": dataLen,
+			"drops":     count,
+		}).Debug("forwardUdpEndpointReplyToClient: reply to client failed (packet dropped)")
+	}
+}
 
 func forwardUdpEndpointReplyToClient(log *logrus.Logger, ue *UdpEndpoint, data []byte, from netip.AddrPort, clientAddr netip.AddrPort, send udpEndpointReplySender, recordDownload func(int64)) error {
 	recordDownload = normalizeTrafficRecord(recordDownload)
@@ -467,30 +494,14 @@ func forwardUdpEndpointReplyToClient(log *logrus.Logger, ue *UdpEndpoint, data [
 	// for every subsequent client packet after a transient local send failure.
 	if send == nil {
 		if err := sendPktWithResponseConnSlot(log, data, from, clientAddr, replySoMark, cacheSlot, cacheProvider); err != nil {
-			udpReplyReinjectionDrops.Add(1)
-			if log != nil && log.IsLevelEnabled(logrus.DebugLevel) {
-				log.WithFields(logrus.Fields{
-					"from":      from.String(),
-					"to":        clientAddr.String(),
-					"data_size": len(data),
-					"error":     err.Error(),
-				}).Debug("forwardUdpEndpointReplyToClient: reply to client failed (packet dropped)")
-			}
+			noteUdpReplyReinjectionDrop(log, err, from, clientAddr, len(data))
 			return nil
 		}
 		recordDownload(int64(len(data)))
 		return nil
 	}
 	if err := send(log, data, from, clientAddr, cacheSlot); err != nil {
-		udpReplyReinjectionDrops.Add(1)
-		if log != nil && log.IsLevelEnabled(logrus.DebugLevel) {
-			log.WithFields(logrus.Fields{
-				"from":      from.String(),
-				"to":        clientAddr.String(),
-				"data_size": len(data),
-				"error":     err.Error(),
-			}).Debug("forwardUdpEndpointReplyToClient: reply to client failed (packet dropped)")
-		}
+		noteUdpReplyReinjectionDrop(log, err, from, clientAddr, len(data))
 		return nil
 	}
 	recordDownload(int64(len(data)))
@@ -551,10 +562,15 @@ func (c *ControlPlane) handleRetainedUDPEndpoint(data []byte, src, realDst netip
 	// The retained endpoint still belongs to this plane's connection, so
 	// meter it through the plane-bound recorder like every other egress
 	// write: the global recorder would attribute bytes of a retiring
-	// generation to whichever store is published mid-reload.
-	c.recordUploadTraffic(int64(len(data)))
-	if lifecycle, lifecycleOK := newUdpSessionLifecycleContext(ue, ""); lifecycleOK {
-		lifecycle.reportTrafficSuccess()
+	// generation to whichever store is published mid-reload. A batched
+	// endpoint is the exception: its flush reports via the aggregator's
+	// SentReporter, so inline metering would double-count (same guard as
+	// batchOwnsAccounting in handlePkt).
+	if ue.sentReporter == nil {
+		c.recordUploadTraffic(int64(len(data)))
+		if lifecycle, lifecycleOK := newUdpSessionLifecycleContext(ue, ""); lifecycleOK {
+			lifecycle.reportTrafficSuccess()
+		}
 	}
 	return true
 }
@@ -631,10 +647,11 @@ func (c *ControlPlane) handlePktOwned(data []byte, src, realDst netip.AddrPort, 
 		forceSymmetricKey = udpRouteScopeNeedsDestinationAffinity(routingResult)
 	}
 
-	// DNS to port 53 never reaches this point in production: the ingress
-	// task intercepts valid DNS messages and answers them before calling
-	// into the handlePkt chain (see udp_ingress_task.go). Port-53 packets
-	// that are not valid DNS simply take the normal UDP path below.
+	// Valid DNS to port 53 is answered by the ingress fast path before it
+	// reaches here, unless the routing verdict carries must (see
+	// dnsFastPathPermitted). Those flows are ordinary UDP: the kernel already
+	// chose the outbound, and userspace must not absorb them into the DNS
+	// controller. Port-53 packets that are not valid DNS also take this path.
 
 	var ue *UdpEndpoint
 	var ueExists bool
@@ -795,9 +812,16 @@ func (c *ControlPlane) handlePktOwned(data []byte, src, realDst netip.AddrPort, 
 				ue.TrackUdpConnStateTuplePair(realSrc, realDst)
 				_, err = ue.WriteTo(data, dialTarget)
 				if err == nil {
-					c.recordUploadTraffic(int64(len(data)))
-					if lifecycle, ok := newUdpSessionLifecycleContext(ue, ""); ok {
-						lifecycle.reportTrafficSuccess()
+					// A batched endpoint only queues the datagram in WriteTo;
+					// the flush reports the real bytes and health signal via the
+					// aggregator's SentReporter. Inline accounting here would
+					// double-count both (same guard as batchOwnsAccounting in
+					// handlePkt).
+					if ue.sentReporter == nil {
+						c.recordUploadTraffic(int64(len(data)))
+						if lifecycle, ok := newUdpSessionLifecycleContext(ue, ""); ok {
+							lifecycle.reportTrafficSuccess()
+						}
 					}
 					return nil
 				}
@@ -1068,11 +1092,16 @@ getNew:
 			endpointDrainTracker = nil
 		}
 		replyLog := c.log
+		// Bind the reply-side download metering to this plane so that a
+		// retired generation's endpoints keep attributing bytes to the
+		// runtime store they were created under, mirroring the upload
+		// metering on the batch aggregator below.
+		replyDownload := c.runtimeDownloadRecorder()
 		ue, isNew, err = DefaultUdpEndpointPool.GetOrCreate(ueKey, &UdpEndpointOptions{
 			Ctx: c.ctx,
 			// Handler handles response packets and send it to the client.
 			Handler: func(ue *UdpEndpoint, data []byte, from netip.AddrPort) (err error) {
-				return forwardUdpEndpointReplyToClient(replyLog, ue, data, from, realSrc, nil, RecordDownloadTraffic)
+				return forwardUdpEndpointReplyToClient(replyLog, ue, data, from, realSrc, nil, replyDownload)
 			},
 			NatTimeout:     natTimeout,
 			ConnStateOwner: connStateOwner,

@@ -249,6 +249,17 @@ type udpEndpointPoolShard struct {
 	pool     map[UdpEndpointKey]*UdpEndpoint
 }
 
+// poolLocked returns the shard's endpoint map, creating it on first use.
+// Shard maps stay nil until the shard holds an endpoint so the per-shard
+// preallocation cost tracks the endpoint count, not the shard count; the
+// shard's mu must be held for writing by the caller.
+func (s *udpEndpointPoolShard) poolLocked() map[UdpEndpointKey]*UdpEndpoint {
+	if s.pool == nil {
+		s.pool = make(map[UdpEndpointKey]*UdpEndpoint)
+	}
+	return s.pool
+}
+
 type udpEndpointDialerBucket struct {
 	mu        sync.RWMutex
 	endpoints map[*UdpEndpoint]struct{}
@@ -435,9 +446,12 @@ func NewUdpEndpointPool() *UdpEndpointPool {
 		janitorStop: make(chan struct{}),
 		janitorDone: make(chan struct{}),
 	}
-	for i := range udpEndpointCreateShardCount {
-		p.shards[i].pool = make(map[UdpEndpointKey]*UdpEndpoint, 16)
-	}
+	// Shard maps are created lazily on first insert: most shards stay empty
+	// on small deployments, and eagerly preallocating a 16-slot map for all
+	// udpEndpointCreateShardCount shards costs ~3.5 MiB of resident heap
+	// (measured: 1024 shards x ~3.5 KiB for the 96-byte key) that scales with
+	// the shard count instead of the endpoint count. Reads, len(), and range
+	// over a nil map are well-defined no-ops.
 	p.startJanitor()
 	return p
 }
@@ -750,9 +764,10 @@ func (p *UdpEndpointPool) Get(key UdpEndpointKey) (udpEndpoint *UdpEndpoint, ok 
 	return ue, ok
 }
 
-// createEndpointLocked dials and registers a new UdpEndpoint under the caller's shard lock.
-// The caller MUST hold the shard mutex for key before calling this function.
-func (p *UdpEndpointPool) createEndpointLocked(key UdpEndpointKey, createOption *UdpEndpointOptions) (*UdpEndpoint, error) {
+// createEndpointUnderCreateMu dials and registers a new UdpEndpoint. The
+// caller MUST hold shard.createMu for key; the function takes the shard mutex
+// itself when touching the shared pool map.
+func (p *UdpEndpointPool) createEndpointUnderCreateMu(key UdpEndpointKey, createOption *UdpEndpointOptions) (*UdpEndpoint, error) {
 	if createOption == nil {
 		createOption = &UdpEndpointOptions{}
 	}
@@ -776,7 +791,7 @@ func (p *UdpEndpointPool) createEndpointLocked(key UdpEndpointKey, createOption 
 	dialOption, err := createOption.GetDialOption(ctx)
 	if err != nil {
 		if shouldCacheUdpEndpointCreateFailure(err) {
-			p.cacheFailureLocked(key, createOption.Log)
+			p.cacheCreateFailure(key, createOption.Log)
 		}
 		return nil, err
 	}
@@ -806,7 +821,7 @@ func (p *UdpEndpointPool) createEndpointLocked(key UdpEndpointKey, createOption 
 			}
 		}
 		if shouldCacheUdpEndpointCreateFailure(err) {
-			p.cacheFailureLocked(key, createOption.Log)
+			p.cacheCreateFailure(key, createOption.Log)
 		}
 		return nil, err
 	}
@@ -846,7 +861,13 @@ dialSuccess:
 			}
 		}(),
 	}
-	if udpWriteBatchOptedIn() {
+	// Install the write aggregator only on transports that implement
+	// netproxy.PacketBatchWriter. Dial success is the one moment the concrete
+	// transport type is known (ue.conn is never reassigned after this), so
+	// this dial-time assertion is what scopes batching; the type re-check in
+	// flush() is a defensive fallback only. Batching is on by default;
+	// DAE_DISABLE_UDP_WRITE_BATCH=1 opts the deployment out entirely.
+	if udpWriteBatchEnabled() {
 		if _, ok := packetConn.(netproxy.PacketBatchWriter); ok {
 			ue.writeBatch = newUDPWriteBatchAggregator(ue)
 			ue.sentReporter = createOption.SentReporter
@@ -879,7 +900,7 @@ dialSuccess:
 
 	shard := p.shardFor(key)
 	shard.mu.Lock()
-	shard.pool[key] = ue
+	shard.poolLocked()[key] = ue
 	shard.mu.Unlock()
 	p.registerEndpoint(ue)
 
@@ -935,7 +956,10 @@ func shouldCacheUdpEndpointCreateFailure(err error) bool {
 	return true
 }
 
-func (p *UdpEndpointPool) cacheFailureLocked(key UdpEndpointKey, log *logrus.Logger) {
+// cacheCreateFailure installs a short-lived failed-endpoint placeholder for
+// key so repeated dials of a dead target fail fast. It acquires the shard
+// mutex itself.
+func (p *UdpEndpointPool) cacheCreateFailure(key UdpEndpointKey, log *logrus.Logger) {
 	failedUe := &UdpEndpoint{
 		log:     log,
 		poolRef: p,
@@ -946,7 +970,7 @@ func (p *UdpEndpointPool) cacheFailureLocked(key UdpEndpointKey, log *logrus.Log
 
 	shard := p.shardFor(key)
 	shard.mu.Lock()
-	shard.pool[key] = failedUe
+	shard.poolLocked()[key] = failedUe
 	shard.mu.Unlock()
 }
 
@@ -1047,7 +1071,7 @@ func (p *UdpEndpointPool) GetOrCreate(key UdpEndpointKey, createOption *UdpEndpo
 	shard.mu.Unlock()
 
 	// Create a new endpoint under the creation lock.
-	newUe, createErr := p.createEndpointLocked(key, createOption)
+	newUe, createErr := p.createEndpointUnderCreateMu(key, createOption)
 	shard.createMu.Unlock()
 	createMuLocked = false
 

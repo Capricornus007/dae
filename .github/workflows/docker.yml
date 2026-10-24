@@ -121,6 +121,18 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      - name: Resolve the golang/go master tip
+        # Dockerfile 的 builder 吃這顆（尖端），不在這裡算就等於讓鏡像用上一次快取
+        # 裡的舊尖端還聲稱是尖端。取法與 feed 倉 setup-feed-go 同源，只是那边是裝
+        # 預先建好的包、這邊是源碼 bootstrap。
+        id: tip
+        run: |
+          set -euo pipefail
+          sha="$(git ls-remote https://github.com/golang/go master | cut -f1)"
+          test -n "$sha" || { echo "::error::解析 golang/go master 的 commit 失敗"; exit 1; }
+          echo ">> Go 尖端 = $sha"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
       - name: Build production image
         id: build
         uses: docker/build-push-action@0a97817b6ade9f46837855d676c4cca3a2471fc9 # v4
@@ -135,6 +147,7 @@ jobs:
             ${{ steps.prep.outputs.IMAGE }}:latest
           build-args: |
             VERSION=${{ steps.prep.outputs.TAG }}
+            GO_TIP_SHA=${{ steps.tip.outputs.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

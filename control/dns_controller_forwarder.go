@@ -120,17 +120,6 @@ func (c *cachedDnsForwarder) retire() error {
 
 var dnsForwarderFactory = newDnsForwarder
 
-func (c *DnsController) extractDnsForwarder(value any) DnsForwarder {
-	switch v := value.(type) {
-	case *cachedDnsForwarder:
-		return v.forwarder
-	case DnsForwarder:
-		return v
-	default:
-		return nil
-	}
-}
-
 func (c *DnsController) evictIdleDnsForwarders(now time.Time) {
 	if c.dnsForwarderIdleTTL <= 0 {
 		return
@@ -148,15 +137,9 @@ func (c *DnsController) evictIdleDnsForwarders(now time.Time) {
 
 		entry, ok := value.(*cachedDnsForwarder)
 		if !ok {
-			if forwarder := c.extractDnsForwarder(value); forwarder != nil {
-				if c.dnsForwarderCache.CompareAndDelete(k, value) {
-					if err := forwarder.Close(); err != nil && c.log != nil {
-						c.log.WithError(err).Debugln("failed to close idle dns forwarder")
-					}
-				}
-			} else {
-				c.dnsForwarderCache.Delete(k)
-			}
+			// Every writer stores a *cachedDnsForwarder; any other value is
+			// corrupt cache state, so drop it.
+			c.dnsForwarderCache.Delete(key)
 			return true
 		}
 
@@ -269,19 +252,48 @@ func (c *DnsController) handleDnsForwardFailure(upstream *dns.Upstream, dialArg 
 	}
 }
 
+// dnsEvidenceNetworkType returns the DNS health-domain network type that
+// carries a dialer's DNS transactional evidence. The domain is deliberately
+// leg-agnostic: a DNS upstream failing over TCP and the same upstream failing
+// over UDP are the same service failing on the same path, so both legs'
+// outcomes are recorded against the DNS-UDP collections of the query's IP
+// version — the collections the DNS chooser consults. A TCP-leg dial argument
+// used to report through the traffic-failure path instead (threshold 50,
+// evidence-blind), which is exactly how an interleaved degradation held a
+// class for a whole production log.
+func dnsEvidenceNetworkType(dialArg *dialArgument) *dialer.NetworkType {
+	return &dialer.NetworkType{
+		L4Proto:         consts.L4ProtoStr_UDP,
+		IpVersion:       dialArg.ipversion,
+		IsDns:           true,
+		UdpHealthDomain: dialer.UdpHealthDomainDns,
+	}
+}
+
 func (c *DnsController) reportDnsForwardFailure(dialArg *dialArgument, err error) {
-	if dialArg == nil || err == nil {
+	if dialArg == nil || err == nil || dialArg.bestDialer == nil {
 		return
 	}
 	// Classification happened in handleDnsForwardFailure; only hard failures
 	// and the soft-auth family reach here.
-	if lifecycle, ok := newDnsUdpLifecycleContext(dialArg, UdpLifecycleProfile{}); ok {
-		lifecycle.reportUnavailable(err)
-	}
+	dialArg.bestDialer.ReportUnavailableTransactional(dnsEvidenceNetworkType(dialArg), err)
 	if rt := c.runtime(); rt != nil && rt.timeoutExceedCallback != nil {
 		rt.timeoutExceedCallback(dialArg, err)
 	}
 	notifyProxyDialerHealthCheck(dialArg.bestDialer, dialArg.l4proto, err)
+}
+
+// reportDnsForwardSuccess feeds the serving dialer's DNS health domain with
+// the successful outcome of one forward, on either leg. Failures already
+// carried transactional evidence; without this success leg the evidence ring
+// would only ever hear from bad days, and a healthy node under a
+// sporadic-failure burst could be evicted with no way for its own traffic to
+// vouch for it.
+func (c *DnsController) reportDnsForwardSuccess(dialArg *dialArgument) {
+	if dialArg == nil || dialArg.bestDialer == nil {
+		return
+	}
+	dialArg.bestDialer.ReportAvailableTransactional(dnsEvidenceNetworkType(dialArg))
 }
 
 // logDnsForwardFailure logs one classified forward failure. A dropped
@@ -403,20 +415,14 @@ func (c *DnsController) getOrCreateDnsForwarder(upstream *dns.Upstream, dialArg 
 
 	for range 3 {
 		if cached, ok := c.dnsForwarderCache.Load(key); ok {
-			switch entry := cached.(type) {
-			case *cachedDnsForwarder:
-				entry.touch(now)
-				return entry, nil
-			case DnsForwarder:
-				wrapped := newCachedDnsForwarder(entry, now)
-				if c.dnsForwarderCache.CompareAndSwap(key, cached, wrapped) {
-					return wrapped, nil
-				}
-				continue
-			default:
+			entry, ok := cached.(*cachedDnsForwarder)
+			if !ok {
+				// Corrupt entry: every writer stores a *cachedDnsForwarder.
 				c.dnsForwarderCache.CompareAndDelete(key, cached)
 				continue
 			}
+			entry.touch(now)
+			return entry, nil
 		}
 		break
 	}
@@ -431,23 +437,15 @@ func (c *DnsController) getOrCreateDnsForwarder(upstream *dns.Upstream, dialArg 
 	if loaded {
 		// Another goroutine won the race; close the redundant instance.
 		_ = createdForwarder.Close()
-		if entry, ok := actual.(*cachedDnsForwarder); ok {
-			entry.touch(now)
-			return entry, nil
+		entry, ok := actual.(*cachedDnsForwarder)
+		if !ok {
+			// Corrupt entry: every writer stores a *cachedDnsForwarder; drop
+			// it so the next query builds a fresh forwarder.
+			c.dnsForwarderCache.CompareAndDelete(key, actual)
+			return nil, fmt.Errorf("corrupt cached dns forwarder entry: %T", actual)
 		}
-		if old, ok := actual.(DnsForwarder); ok {
-			wrapped := newCachedDnsForwarder(old, now)
-			if c.dnsForwarderCache.CompareAndSwap(key, actual, wrapped) {
-				return wrapped, nil
-			}
-			if latest, ok := c.dnsForwarderCache.Load(key); ok {
-				if latestEntry, ok := latest.(*cachedDnsForwarder); ok {
-					latestEntry.touch(now)
-					return latestEntry, nil
-				}
-			}
-		}
-		return nil, fmt.Errorf("unexpected cached dns forwarder type: %T", actual)
+		entry.touch(now)
+		return entry, nil
 	}
 	if c.dnsForwardersClosed.Load() {
 		// The controller was closed between the entry check and this store.
@@ -483,13 +481,18 @@ func (c *DnsController) forwardWithDialArg(ctx context.Context, upstream *dns.Up
 			// large for UDP), not a transport failure.  Propagate the error
 			// so the caller can react (e.g. tcp+udp fallback, or TC=1 to
 			// client), but do NOT retire the forwarder, penalise the dialer
-			// or emit a misleading failure log.
-			if !errors.Is(err, ErrDNSTruncated) {
-				c.handleDnsForwardFailure(upstream, dialArg, key, entry, err)
+			// or emit a misleading failure log. The upstream DID answer, so
+			// the exchange still counts as successful transactional
+			// evidence for the dialer's DNS health.
+			if errors.Is(err, ErrDNSTruncated) {
+				c.reportDnsForwardSuccess(dialArg)
+				return nil, err
 			}
+			c.handleDnsForwardFailure(upstream, dialArg, key, entry, err)
 			return nil, err
 		}
 		entry.consecutiveErrors.Store(0)
+		c.reportDnsForwardSuccess(dialArg)
 		return respMsg, nil
 	}
 	return nil, fmt.Errorf("dns forwarder retired before request could start")
@@ -508,18 +511,13 @@ func (c *DnsController) closeAllDnsForwarders() []error {
 	c.dnsForwarderCache.Range(func(key, value any) bool {
 		k := key.(dnsForwarderKey)
 		c.dnsForwarderCache.Delete(k)
-		switch entry := value.(type) {
-		case *cachedDnsForwarder:
-			if err := entry.closeNow(); err != nil {
-				errs = append(errs, fmt.Errorf("close dns forwarder %q: %w", k.upstream, err))
-			}
-		default:
-			forwarder := c.extractDnsForwarder(value)
-			if forwarder != nil {
-				if err := forwarder.Close(); err != nil {
-					errs = append(errs, fmt.Errorf("close dns forwarder %q: %w", k.upstream, err))
-				}
-			}
+		entry, ok := value.(*cachedDnsForwarder)
+		if !ok {
+			// Corrupt entry: nothing to close.
+			return true
+		}
+		if err := entry.closeNow(); err != nil {
+			errs = append(errs, fmt.Errorf("close dns forwarder %q: %w", k.upstream, err))
 		}
 		return true
 	})
@@ -533,24 +531,17 @@ func (c *DnsController) retireAllDnsForwarders() []error {
 	var errs []error
 	c.dnsForwarderCache.Range(func(key, value any) bool {
 		k := key.(dnsForwarderKey)
-		switch entry := value.(type) {
-		case *cachedDnsForwarder:
-			if !c.dnsForwarderCache.CompareAndDelete(k, entry) {
-				return true
-			}
-			if err := entry.retire(); err != nil {
-				errs = append(errs, fmt.Errorf("retire dns forwarder %q: %w", k.upstream, err))
-			}
-		default:
-			if !c.dnsForwarderCache.CompareAndDelete(k, value) {
-				return true
-			}
-			forwarder := c.extractDnsForwarder(value)
-			if forwarder != nil {
-				if err := forwarder.Close(); err != nil {
-					errs = append(errs, fmt.Errorf("close dns forwarder %q: %w", k.upstream, err))
-				}
-			}
+		entry, ok := value.(*cachedDnsForwarder)
+		if !ok {
+			// Corrupt entry: nothing to retire, just drop it.
+			c.dnsForwarderCache.CompareAndDelete(k, value)
+			return true
+		}
+		if !c.dnsForwarderCache.CompareAndDelete(k, entry) {
+			return true
+		}
+		if err := entry.retire(); err != nil {
+			errs = append(errs, fmt.Errorf("retire dns forwarder %q: %w", k.upstream, err))
 		}
 		return true
 	})
