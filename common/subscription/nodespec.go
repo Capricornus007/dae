@@ -107,8 +107,8 @@ func (p *nodeSpec) toDaeLink() (string, error) {
 }
 
 func (p *nodeSpec) hostPort() string {
-	// clash YAML 允許 server 自帶埠，實例（qwy2 訂閱，2026-10-21）：
-	//   server: 's21c2c4a.edge.0443.me.uk:443', port: 443
+	// clash YAML 允許 server 自帶埠，實例（2026-10-21 的一份真實訂閱）：
+	//   server: 'n01.edge.example.net:443', port: 443
 	// 直接 JoinHostPort 會做出 "host:443:443"，outbound 那邊 dial 時報
 	// "too many colons in address"，整個節點被判不通。server 帶埠時以它為準。
 	host, port := p.Server, p.Port

@@ -46,9 +46,9 @@ type sip008Server struct {
 
 var linkSchemeRE = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9+.\-]*$`)
 
-// doubledPortRE 抓「host:port:port」這種畸形 authority。實例（qwy2 訂閱，2026-10-21）：
+// doubledPortRE 抓「host:port:port」這種畸形 authority。實例（2026-10-21 的一份真實訂閱）：
 //
-//	anytls://249b…@s21c2c4a.edge.0443.me.uk:443:443/?type=tcp&…
+//	anytls://pw…@n01.edge.example.net:443:443/?type=tcp&…
 //
 // dae 照抄會變成 dial "host:443:443" → "too many colons in address"，整個節點被判不通。
 // 只有兩個埠相同時才修；不同代表我們不懂這份資料，原樣放行。

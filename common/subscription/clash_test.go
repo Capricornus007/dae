@@ -173,13 +173,13 @@ func TestResolveSubscriptionDispatchesClash(t *testing.T) {
 	}
 }
 
-// 2026-10-21：qwy2 訂閱裡的 anytls 節點把埠寫在 server 裡又給了 port
-// （server: 's521c0d7.edge.0443.me.uk:443', port: 443），舊的 hostPort() 直接
+// 2026-10-21：一份真實訂閱裡的 anytls 節點把埠寫在 server 裡又給了 port
+// （server: 'n01.edge.example.net:443', port: 443），舊的 hostPort() 直接
 // JoinHostPort 會做出 host:443:443，dae 在 dial 時報 too many colons，整組節點被判不通。
 func TestResolveSubscriptionAsClashServerAlreadyHasPort(t *testing.T) {
 	const sample = `
 proxies:
-  - { name: n-port-in-server, type: anytls, server: 's521c0d7.edge.0443.me.uk:443', port: 443, password: p, sni: example.com }
+  - { name: n-port-in-server, type: anytls, server: 'n01.edge.example.net:443', port: 443, password: p, sni: example.com }
   - { name: n-ipv6-bracketed, type: anytls, server: '[2001:db8::1]', port: 8443, password: p, sni: example.com }
 `
 	nodes, err := ResolveSubscriptionAsClash(logrus.New(), []byte(sample))
@@ -202,10 +202,10 @@ proxies:
 	}
 }
 
-// 2026-10-21：qwy2 訂閱（base64 形式）本身就吐畸形 authority：
-// anytls://…@s21c2c4a.edge.0443.me.uk:443:443/?…，dae 照抄會 dial "too many colons"。
+// 2026-10-21：同一份訂閱（base64 形式）本身就吐畸形 authority：
+// anytls://…@n01.edge.example.net:443:443/?…，dae 照抄會 dial "too many colons"。
 func TestResolveSubscriptionAsBase64FixesDoubledPort(t *testing.T) {
-	link := "anytls://pw@s21c2c4a.edge.0443.me.uk:443:443/?type=tcp&sni=example.com#n"
+	link := "anytls://pw@n01.edge.example.net:443:443/?type=tcp&sni=example.com#n"
 	raw := base64.StdEncoding.EncodeToString([]byte(link + "\n"))
 	nodes := ResolveSubscriptionAsBase64(logrus.New(), []byte(raw))
 	if len(nodes) != 1 {
@@ -214,7 +214,7 @@ func TestResolveSubscriptionAsBase64FixesDoubledPort(t *testing.T) {
 	if strings.Contains(nodes[0], ":443:443") {
 		t.Fatalf("埠還是被拼了兩次：%s", nodes[0])
 	}
-	if !strings.Contains(nodes[0], ".me.uk:443/?type=tcp") {
+	if !strings.Contains(nodes[0], ".example.net:443/?type=tcp") {
 		t.Fatalf("正規化結果不對：%s", nodes[0])
 	}
 	// 兩埠不同時不該動它（不懂的資料原樣放行）
