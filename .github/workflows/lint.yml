@@ -57,12 +57,19 @@ jobs:
       run: make -s print-goexperiment-env >> "$GITHUB_ENV"
 
     # 不能用 golangci-lint-action：它釘 x/tools v0.50.0，讀不了 go tip 的 std export data
-    # （實測 v0.50 ✗、v0.51 ✓）→ Lint 必紅。版號跟最新 release v2.14.0（用戶 2026-10-11 裁：工具也一律最尖端），依賴裡的 x/tools 另外抬。
+    # （實測 v0.50 ✗、v0.51 ✓）→ Lint 必紅。版號跟最新 release v2.15.0（用戶 2026-10-11 裁：
+    # 工具也一律最尖端），依賴裡的 x/tools 另外抬。
+    # xtools 换到 x/tools 的 master 尖端（v0.52.1-0.20261030190145-0f433775b36d）：
+    # 2026-11-01 的 Lint run #41279349936 紅在「unstable iexport format version 4,
+    # export data is newer version - update tool」——Go 那條 feed 的尖端已把 std export
+    # data 的 iexport 格式從 v3 升到 v4，而 v0.52.0 的 gcimporter 只認到 v3。x/tools
+    # 自己是跟 Go 尖端同步修的，所以吃它的 master（已發布的最新 tag 仍停在 v0.52.0，
+    # 光抬 tag 抬不到修法）。換值同時會改 cache key（gcl-<ver>-<xtools>-…），必然重編。
     - name: Install golangci-lint v2.15.0 (with x/tools that reads Go tip)
       uses: Capricornus007/repo/.github/actions/setup-gcl@master
       with:
         version: v2.15.0
-        xtools: v0.52.0
+        xtools: v0.52.1-0.20261030190145-0f433775b36d
     - name: Run golangci-lint
       run: golangci-lint run --timeout=10m --build-tags=dae_stub_ebpf
 
